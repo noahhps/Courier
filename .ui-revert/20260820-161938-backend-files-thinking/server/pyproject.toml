@@ -1,0 +1,33 @@
+[project]
+name = "unified-llm-server"
+version = "0.1.0"
+description = "Personal LLM server: one memory, one history, on your own hardware"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    # Attached images are normalised before they are stored -- see
+    # app/attachments.py. Without this every client would have to know which
+    # formats the local runner happens to decode.
+    "pillow>=10.0",
+    # PDF text extraction. The Office and OpenDocument formats are ZIPs of XML
+    # and are read with the standard library; PDF is the one that needs a real
+    # parser. See app/extract.py.
+    "pypdf>=4.0",
+]
+
+[project.optional-dependencies]
+# Cloud fallback. Not needed for a purely local install.
+cloud = ["anthropic>=0.69"]
+
+[project.scripts]
+unified-llm = "app.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

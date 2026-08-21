@@ -1,0 +1,16 @@
+# Rebuilt on any machine that needs it, and full of platform-specific binaries.
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# The live database and the bearer token. The token is the only thing in front
+# of the API, and the database is every conversation, with attachments stored
+# inside it as blobs.
+data/
+
+# Build output and dependencies.
+node_modules/
+dist/
+
+.DS_Store

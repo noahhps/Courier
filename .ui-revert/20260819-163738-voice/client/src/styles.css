@@ -1,0 +1,1284 @@
+/* Design target: the message list, the composer, and nothing else.
+
+   Yiqi Sheet v2 — terminal dress. Flat colour, hard edges, everything labelled
+   and numbered like equipment, nothing decorative that isn't also information.
+   Near-black ground, warm bone mark, one acid accent, one alarm.
+
+   Fonts are served from public/fonts rather than a CDN. The phone has to render
+   on a network that reaches the tailnet and nothing else, which is the same
+   reason lib/markdown.js is hand-rolled. */
+
+/* Archivo carries a width axis as well as weight, which is what lets the
+   display role be genuinely condensed rather than squashed by the browser. */
+@font-face {
+  font-family: "Archivo";
+  src: url("/fonts/archivo-var.woff2") format("woff2");
+  font-weight: 400 800;
+  font-stretch: 75% 125%;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/ibm-plex-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/ibm-plex-mono-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/ibm-plex-mono-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Playfair Display";
+  src: url("/fonts/playfair-display-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Four colours, hard cap, used at roughly 90 / 6 / 3 / 1. Everything else in
+   this file is one of these at an alpha -- no fifth hue enters, and the
+   surfaces are told apart by hairlines and overlap rather than by tint.
+
+   There is deliberately no light variant. The ratio is the design; inverting
+   it would need a second palette and break the cap. */
+:root {
+  --bg: #0b0c0a; /* 90 — near-black, never pure #000 */
+  --ink: #e8e6df; /* 6  — warm off-white, never pure #FFF */
+  --loud: #d6f249; /* 3  — the one loud colour */
+  --alarm: #ff4d14; /* 1  — state changes only, never decorative */
+
+  /* Structure is a 1px hairline at 40%; signal is the same line at 100%. */
+  --line: color-mix(in srgb, var(--ink) 40%, transparent);
+  --line-signal: var(--ink);
+
+  --text: var(--ink);
+  --text-dim: color-mix(in srgb, var(--ink) 66%, var(--bg));
+  /* 48% of the ink lands at 4.2:1, under AA for the 10px it is set in. */
+  --faint: color-mix(in srgb, var(--ink) 55%, var(--bg));
+
+  /* Surfaces do not get their own colours. A panel is the ground plus a rule;
+     the only fill is the ink itself, thinned. */
+  --bg-raised: var(--bg);
+  --bg-input: var(--bg);
+  --user-bubble: color-mix(in srgb, var(--ink) 7%, var(--bg));
+
+  --accent: var(--loud);
+  --accent-hover: var(--alarm);
+  /* Both loud colours are bright, so what sits on them is the ground -- the
+     near-black -- not the bone. */
+  --on-accent: var(--bg);
+  --on-alarm: var(--bg);
+  --danger: var(--alarm);
+
+  /* 0 or 2. Nothing between, never 12. */
+  --radius: 0px;
+  --tick: 2px;
+  --grid: 8px;
+  --composer-h: 0px;
+
+  /* Three roles, no fourth. Body prose is the display grotesque at normal
+     width -- the uppercase, tracked-out treatment is what makes it display. */
+  --font-display: "Archivo", "Helvetica Neue", Helvetica, system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-flavor: "Playfair Display", Georgia, serif;
+}
+
+/* The sheet's other four accents. Every one of them is a dark colour drawn
+   for a paper surface, so choosing one flips the ground with it -- as a bare
+   accent on the near-black they would be invisible, ink on ink.
+
+   Only --bg, --ink and --loud change. Everything else is derived from those
+   three, so the hairlines, the dim tiers and the bubble wash follow on their
+   own and the cap of four colours still holds within each choice. */
+:root[data-accent="blue"],
+:root[data-accent="navy"],
+:root[data-accent="ink"],
+:root[data-accent="green"] {
+  --bg: #faf9f6;
+  --ink: #14161a;
+  /* The page ground, kept under its own name. The drawer overrides --bg to
+     the accent, and still needs a way to name the paper afterwards. */
+  --sheet: #faf9f6;
+  /* On paper the loud colour is dark, so what sits on it is the ground. */
+  --on-accent: var(--bg);
+  --on-alarm: var(--bg);
+  /* Dark-on-light needs more of the ink than light-on-dark did to clear AA at
+     10px: 55% reads 4.0 here against 5.2 on the near-black. */
+  --faint: color-mix(in srgb, var(--ink) 66%, var(--bg));
+}
+
+/* On the paper themes the drawer is a solid block of the accent, as the sheet
+   draws its index panel.
+
+   Each derived token is restated rather than just flipping --ink underneath
+   them: a custom property resolves its own var() at the element that declares
+   it, so --text and friends had already computed against the page's ink at
+   :root and would not follow a deeper override. */
+:root[data-accent="blue"] .drawer,
+:root[data-accent="navy"] .drawer,
+:root[data-accent="ink"] .drawer,
+:root[data-accent="green"] .drawer {
+  background: var(--loud);
+  border-right-color: var(--loud);
+  color: var(--sheet);
+
+  --bg: var(--loud);
+  --ink: var(--sheet);
+  --text: var(--sheet);
+  --text-dim: color-mix(in srgb, var(--sheet) 82%, var(--loud));
+  --faint: color-mix(in srgb, var(--sheet) 66%, var(--loud));
+  --line: color-mix(in srgb, var(--sheet) 40%, transparent);
+  --line-signal: var(--sheet);
+  --user-bubble: color-mix(in srgb, var(--sheet) 14%, transparent);
+  --on-alarm: var(--sheet);
+}
+
+/* The active row is marked with the accent everywhere else, which inside an
+   accent-coloured panel would be nothing at all. Here it is the paper. */
+:root[data-accent="blue"] .drawer .session-list li[data-active="true"],
+:root[data-accent="navy"] .drawer .session-list li[data-active="true"],
+:root[data-accent="ink"] .drawer .session-list li[data-active="true"],
+:root[data-accent="green"] .drawer .session-list li[data-active="true"] {
+  border-left-color: var(--sheet);
+}
+
+:root[data-accent="blue"] {
+  --loud: #0000cc;
+}
+
+:root[data-accent="navy"] {
+  --loud: #061b4a;
+}
+
+/* The accent is the ink itself: no colour at all, only weight. */
+:root[data-accent="ink"] {
+  --loud: #14161a;
+}
+
+:root[data-accent="green"] {
+  --loud: #1f4d3d;
+}
+
+/* --- accent picker ------------------------------------------------------ */
+
+.accent {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px calc(env(safe-area-inset-bottom) + 12px);
+  border-top: 1px solid var(--line-signal);
+}
+
+.accent-label {
+  font-family: var(--font-data);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.accent-row {
+  display: flex;
+  gap: 6px;
+}
+
+/* Square, hard-edged, and showing its own colour -- the swatch is the value. */
+.accent-swatch {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--swatch);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.accent-swatch:hover {
+  border-color: var(--line-signal);
+}
+
+.accent-swatch[aria-pressed="true"] {
+  border-color: var(--line-signal);
+}
+
+.accent-swatch svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 3;
+}
+
+/* The acid swatch is nearly white; a white tick would vanish on it. */
+.accent-swatch[aria-label="Acid"] {
+  color: #0b0c0a;
+}
+
+/* DISPLAY — condensed, uppercase, tracked out. Headings and anything naming a
+   thing rather than saying it. */
+.display,
+.title,
+.drawer-head,
+.msg h1,
+.msg h2,
+.msg h3 {
+  font-family: var(--font-display);
+  font-stretch: 85%;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* DATA — every numeral in the interface, and every label that behaves like a
+   readout. Tabular so columns of figures do not shift as they change. */
+.meta,
+.badge,
+.staged-size,
+.file-chip-meta,
+.reasoning-toggle,
+.composer-hint,
+.lightbox-name {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* FLAVOR — twice a screen, no more. The wordmark and the empty state. */
+.flavor {
+  font-family: var(--font-flavor);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Class-level `display` beats the UA rule for [hidden], and the shell relies
+   on the attribute to show the gate, the drawer, and the badge. */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body,
+/* The React root has to carry the height too. Without it `.app`'s `height:100%`
+   resolves against an auto-height parent, so the document grows to fit the
+   conversation and the whole page scrolls -- taking the sidebar with it --
+   instead of each panel scrolling inside its own box. */
+#root {
+  height: 100%;
+  margin: 0;
+  overscroll-behavior-y: none;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 var(--font-display);
+  font-stretch: 100%;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numerals are data wherever they appear, including mid-sentence. */
+time,
+output,
+.tabular {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* --- token gate --------------------------------------------------------- */
+
+.gate {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 24px;
+}
+
+.gate-card {
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gate-card h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.gate-card p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.gate-card input,
+.gate-card button {
+  font: inherit;
+  padding: 12px 14px;
+  border-radius: 0;
+  border: 1px solid var(--line-signal);
+}
+
+.gate-card h1 {
+  font-family: var(--font-flavor);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.gate-card input {
+  background: var(--bg-input);
+  color: var(--text);
+}
+
+.gate-card button {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+  font-family: var(--font-data);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* Alarm is reserved for state changes. A press is one. */
+.gate-card button:hover:not(:disabled) {
+  background: var(--alarm);
+  border-color: var(--alarm);
+  color: var(--on-alarm);
+}
+
+.gate-error {
+  color: var(--danger);
+}
+
+/* --- shell -------------------------------------------------------------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* One name for the panel's width: the slide-out distance has to match it
+     exactly or the closed panel shows an edge. */
+  --drawer-w: min(300px, 82vw);
+}
+
+/* The conversation column. Holds everything that is not the drawer, so the
+   drawer can sit beside it at width rather than on top of it. */
+.thread {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: max(env(safe-area-inset-top), 8px) 8px 8px;
+  border-bottom: 1px solid var(--line-signal);
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A stamped plate, not a pill. */
+.badge {
+  padding: 3px 8px;
+  border-radius: 0;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.badge[data-tone="warn"] {
+  background: var(--alarm);
+  border-color: var(--alarm);
+  color: var(--on-alarm);
+  font-weight: 600;
+}
+
+/* Square plates, hard edges -- the geometry of the sheet applied to a glyph
+   button rather than a label. */
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.icon-btn:hover:not(:disabled) {
+  border-color: var(--line);
+}
+
+.icon-btn:active {
+  background: var(--alarm);
+  border-color: var(--alarm);
+  color: var(--on-alarm);
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Kept for glyphs that ship as files in public/: the file supplies the shape
+   through the mask, `currentColor` supplies the colour, so they inherit the
+   theme and the disabled state exactly like the inline ones. Nothing uses it
+   at the moment -- see the note in Icon.jsx. */
+.icon-mask {
+  display: block;
+  width: 22px;
+  height: 22px;
+  background: currentColor;
+  -webkit-mask: var(--mask) center / contain no-repeat;
+  mask: var(--mask) center / contain no-repeat;
+}
+
+/* A badged glyph. The stack is the same 22px box a bare icon occupies, so the
+   badge sits inside the icon's own bounds rather than enlarging it. */
+.icon-stack {
+  position: relative;
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+
+.icon-badge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 11px;
+  height: 11px;
+  /* Clears a hole in the artwork behind the badge; without it the plus lands
+     on top of the drawing and neither shape reads. Square, per the geometry. */
+  background: var(--bg);
+  border-radius: 0;
+  /* Scaled to half size, the shell's 2px stroke would come out under a pixel. */
+  stroke-width: 3.5;
+}
+
+/* --- drawer ------------------------------------------------------------- */
+
+.drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: var(--drawer-w);
+  z-index: 20;
+  background: var(--bg-raised);
+  /* The panel is told from the ground by a signal rule, not by a lighter fill. */
+  border-right: 1px solid var(--line-signal);
+  display: flex;
+  flex-direction: column;
+
+  /* Slid rather than shown. `visibility` is what keeps a closed panel out of
+     the focus order, and it is held until the slide has finished -- animating
+     it directly would hide the panel before it had moved. */
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition: transform 200ms ease, visibility 0s linear 200ms;
+}
+
+.app[data-drawer="open"] .drawer {
+  transform: none;
+  visibility: visible;
+  transition: transform 200ms ease, visibility 0s;
+}
+
+/* Padded exactly as .topbar is -- same safe-area allowance, same 8px below,
+   the same 40px control inside -- so the rule under this head lands on the
+   same line as the rule under the top bar when the two sit side by side. */
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(env(safe-area-inset-top), 8px) 8px 8px 16px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line-signal);
+}
+
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Reaching the end of the list must not hand the scroll on to the thread
+     behind it. The two panels scroll independently or not at all. */
+  overscroll-behavior: contain;
+}
+
+.session-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 0;
+  border-left: var(--tick) solid transparent;
+}
+
+/* Marked with a rule at the edge rather than a filled row -- overlap, not tint. */
+.session-list li[data-active="true"] {
+  border-left-color: var(--loud);
+  background: var(--user-bubble);
+}
+
+.session-list li:hover {
+  border-left-color: var(--line);
+}
+
+.session-list button {
+  font: inherit;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 10px 12px;
+}
+
+.session-list .session-open {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-list .session-delete {
+  color: var(--text-dim);
+  padding: 10px;
+}
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  background: color-mix(in srgb, #000 55%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+
+.app[data-drawer="open"] .scrim {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Wide enough to spare the width: the drawer stops covering the thread and
+   takes a column of its own, pushing the conversation across instead. The
+   panel is the same markup either way -- only where it sits changes.
+
+   860px is the breakpoint the message list already uses to start centring
+   itself, so the two changes happen together rather than fighting. */
+@media (min-width: 860px) {
+  .app {
+    flex-direction: row;
+    --drawer-w: min(300px, 30vw);
+  }
+
+  /* In the row it is a real column of the layout, and it opens by giving back
+     the width it was holding negative -- so the conversation slides across
+     rather than being covered. */
+  .drawer {
+    position: static;
+    flex: none;
+    transform: none;
+    margin-left: calc(-1 * var(--drawer-w));
+    transition: margin-left 200ms ease, visibility 0s linear 200ms;
+  }
+
+  .app[data-drawer="open"] .drawer {
+    margin-left: 0;
+    transition: margin-left 200ms ease, visibility 0s;
+  }
+
+  /* Nothing to dim: the thread is beside the panel, not under it. */
+  .scrim {
+    display: none;
+  }
+}
+
+/* Asked not to animate, do not animate -- the panel still opens and closes. */
+@media (prefers-reduced-motion: reduce) {
+  .drawer,
+  .app[data-drawer="open"] .drawer,
+  .scrim {
+    transition-duration: 0s;
+  }
+}
+
+/* --- messages ----------------------------------------------------------- */
+
+.messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 16px calc(var(--composer-h) + 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.msg {
+  max-width: min(46rem, 100%);
+  width: fit-content;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  /* `break-word`, not `anywhere`. Both rescue a long unbroken string from
+     overflowing, but `anywhere` also counts the break opportunities when the
+     browser works out a box's minimum content width -- so a table column
+     collapses to a few characters and splits "Component" into "Compone / nt".
+     `break-word` leaves that measurement alone: a column is at least as wide
+     as its longest word, and the table scrolls sideways instead. */
+  overflow-wrap: break-word;
+}
+
+.msg[data-role="user"] {
+  align-self: flex-end;
+  background: var(--user-bubble);
+  /* The speaker is marked by which edge carries the rule. */
+  border-right: var(--tick) solid var(--line);
+}
+
+.msg[data-role="assistant"] {
+  align-self: flex-start;
+  padding-left: 14px;
+  padding-right: 0;
+  width: 100%;
+  border-left: var(--tick) solid var(--line);
+}
+
+/* Alarm, at full strength, because an error is a state change. */
+.msg[data-role="error"] {
+  align-self: flex-start;
+  color: var(--alarm);
+  border: 1px solid var(--alarm);
+  border-left-width: var(--tick);
+  font-family: var(--font-data);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.msg > :first-child {
+  margin-top: 0;
+}
+
+.msg > :last-child {
+  margin-bottom: 0;
+}
+
+.msg p {
+  margin: 0.6em 0;
+}
+
+.msg h1,
+.msg h2,
+.msg h3 {
+  margin: 1em 0 0.4em;
+  line-height: 1.3;
+}
+
+.msg h1 {
+  font-size: 1.3em;
+}
+.msg h2 {
+  font-size: 1.15em;
+}
+.msg h3 {
+  font-size: 1em;
+}
+
+.msg ul,
+.msg ol {
+  margin: 0.6em 0;
+  padding-left: 1.4em;
+}
+
+.msg li {
+  margin: 0.25em 0;
+}
+
+.msg blockquote {
+  margin: 0.6em 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--line);
+  color: var(--text-dim);
+}
+
+.msg a {
+  color: var(--accent);
+}
+
+.msg code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 0.88em;
+  background: var(--bg-input);
+  padding: 0.15em 0.35em;
+  border-radius: 2px;
+}
+
+.msg pre {
+  margin: 0.7em 0;
+  padding: 12px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  overflow-x: auto;
+}
+
+.msg pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+.msg table {
+  border-collapse: collapse;
+  margin: 0.7em 0;
+  display: block;
+  overflow-x: auto;
+}
+
+.msg th,
+.msg td {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.cursor::after {
+  content: "▍";
+  color: var(--text-dim);
+  animation: blink 1.1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* The sheet's WORKING plate, and its blink: a hard step between full and
+   near-off, never a fade. It is a state readout on a piece of equipment, not
+   decoration, so it snaps. Taken from Yiqi v2 unchanged. */
+@keyframes yq-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
+.working {
+  display: inline-block;
+  font-family: var(--font-data);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--on-alarm);
+  background: var(--alarm);
+  padding: 3px 8px;
+  animation: yq-blink 1s steps(1) infinite;
+}
+
+/* Still says what it says, it just stops flashing. */
+@media (prefers-reduced-motion: reduce) {
+  .working {
+    animation: none;
+  }
+}
+
+/* The second and last use of the serif. */
+.empty {
+  margin: auto;
+  color: var(--text-dim);
+  font-family: var(--font-flavor);
+  font-weight: 500;
+  font-size: 22px;
+}
+
+/* --- composer ----------------------------------------------------------- */
+
+.composer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px calc(env(safe-area-inset-bottom) + 8px);
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+
+/* A file is being dragged over the window. The composer is what lights up,
+   because that is where the file is going to end up. */
+.composer[data-dropping="true"] {
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+  border-top: var(--tick) solid var(--loud);
+}
+
+.composer[data-dropping="true"] textarea {
+  border-color: var(--accent);
+  border-style: dashed;
+}
+
+/* The input line itself. The composer above it is a column so staged files can
+   sit on their own row without displacing anything. */
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.composer textarea {
+  flex: 1;
+  font: inherit;
+  resize: none;
+  max-height: 40vh;
+  padding: 11px 14px;
+  border-radius: 0;
+  border: 1px solid var(--line-signal);
+  background: var(--bg-input);
+  color: var(--text);
+}
+
+.composer textarea:focus {
+  outline: var(--tick) solid var(--loud);
+  outline-offset: -1px;
+}
+
+.composer textarea::placeholder {
+  font-family: var(--font-data);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* Scoped to the send button on purpose: the composer holds flat icon buttons
+   too, and a bare `.composer button` rule would paint them all as accent
+   circles. */
+/* Square. The one loud colour lives here and on the active toggle -- that is
+   most of the 3% budget spent in one place, deliberately. */
+.composer .send {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border: 1px solid var(--loud);
+  border-radius: 0;
+  background: var(--loud);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+
+.composer .send:hover:not(:disabled) {
+  background: var(--alarm);
+  border-color: var(--alarm);
+  color: var(--on-alarm);
+}
+
+.composer .send:disabled {
+  opacity: 0.4;
+}
+
+/* The sheet's mic: an outlined circle that fills with the accent while it is
+   listening, so the state is the button rather than a label beside it. */
+.composer .mic {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.composer .mic:hover:not(:disabled) {
+  border-color: var(--line-signal);
+  color: var(--text);
+}
+
+/* Recording is a state change, so it takes the alarm rather than the acid. */
+.composer .mic[data-state="recording"] {
+  background: var(--alarm);
+  border-color: var(--alarm);
+  color: var(--on-alarm);
+}
+
+/* Transcribing: the recorder has stopped and the model has it. A hard blink,
+   not a fade -- nothing in here eases. */
+.composer .mic[data-state="transcribing"] {
+  color: var(--alarm);
+  border-color: var(--alarm);
+  animation: blink 1s steps(1) infinite;
+}
+
+.composer .mic:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Only while listening or transcribing -- a permanent hint is furniture. */
+.composer-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-data);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 0 2px;
+}
+
+/* The composer's icon buttons sit level with the send button, not with the
+   top of a textarea that has grown to several lines. Off is dim, on is the
+   accent -- the same blue as the send button, so "lit" reads as active rather
+   than as a second kind of disabled. */
+.composer .icon-btn {
+  width: 44px;
+  height: 44px;
+  color: var(--text-dim);
+}
+
+/* Lit two ways, for two meanings: a toggle that is switched on, and the attach
+   button while files are waiting to go. Solid acid, not a wash -- the loud
+   colour is either spent or it isn't. */
+.composer .icon-btn[aria-pressed="true"],
+.composer .icon-btn[data-active="true"] {
+  background: var(--loud);
+  border-color: var(--loud);
+  color: var(--on-accent);
+}
+
+/* --- staged files ------------------------------------------------------- */
+
+.staged {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+.staged-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 5px 6px 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--bg-input);
+  font-size: 13px;
+}
+
+.staged-thumb {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 0;
+  flex: none;
+}
+
+.staged-name {
+  min-width: 0;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.staged-size {
+  font-family: var(--font-data);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  flex: none;
+}
+
+.staged-remove {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.staged-remove:hover {
+  color: var(--text);
+}
+
+/* --- files on a sent message -------------------------------------------- */
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.attachment-image {
+  display: block;
+  line-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+
+.attachment-image img {
+  max-width: min(260px, 100%);
+  max-height: 260px;
+  border-radius: 0;
+  border: 1px solid var(--line);
+}
+
+/* Holds the row's height steady while the bytes are being fetched, so the
+   thread doesn't jump when the picture lands. */
+.attachment-image.placeholder {
+  width: 120px;
+  height: 90px;
+  border-radius: 0;
+  background: var(--bg-input);
+}
+
+.file-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--bg-input);
+  font-size: 13px;
+  max-width: 100%;
+}
+
+.file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-chip-meta {
+  font-family: var(--font-data);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  flex: none;
+}
+
+/* Above the drawer, which sits at 20. */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: max(env(safe-area-inset-top), 24px) 24px
+    max(env(safe-area-inset-bottom), 24px);
+  background: color-mix(in srgb, #14161a 88%, transparent);
+  cursor: zoom-out;
+}
+
+.lightbox img {
+  max-width: 100%;
+  max-height: 85vh;
+  object-fit: contain;
+  border-radius: 0;
+}
+
+/* Fixed light, not tokenised: the backdrop is dark in both themes. */
+.lightbox-name {
+  font-family: var(--font-data);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ededf2;
+}
+
+/* Keeps a formula from breaking across lines mid-expression. */
+.msg .math {
+  white-space: nowrap;
+}
+
+/* The reading column is held to a measure and centred in whatever room it has.
+   Percentages here, not vw: padding resolves against the containing block, so
+   the column re-centres inside the thread when the drawer takes its 300px,
+   instead of keeping a viewport-sized gutter and squeezing the text. */
+@media (min-width: 860px) {
+  .messages {
+    padding-left: max(16px, calc(50% - 26rem));
+    padding-right: max(16px, calc(50% - 26rem));
+  }
+
+  .composer {
+    padding-left: max(12px, calc(50% - 26rem));
+    padding-right: max(12px, calc(50% - 26rem));
+  }
+}
+
+.msg[data-thinking] {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* --- reasoning ---------------------------------------------------------- */
+
+.reasoning {
+  margin-bottom: 10px;
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+}
+
+.reasoning-toggle {
+  font-family: var(--font-data);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.reasoning-toggle:hover {
+  color: var(--text);
+}
+
+/* Marks the block while the model is still working, so a live pass reads
+   differently from a finished one sitting above an answer. */
+.reasoning[data-live] .reasoning-toggle::after {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 7px;
+  border-radius: 0;
+  background: currentColor;
+  animation: pulse 1.2s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* Capped and scrolled rather than allowed to grow: a reasoning pass runs to
+   thousands of tokens and would otherwise push the answer off the screen. */
+.reasoning-body {
+  margin-top: 6px;
+  max-height: 11rem;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+
+/* --- microphone level meter --------------------------------------------- */
+
+.levels {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+  flex: none;
+}
+
+/* Scaled from the base rather than resized: transform is the one property the
+   compositor can animate without laying the composer out again, which matters
+   when it changes every frame. */
+.level {
+  width: 2px;
+  height: 100%;
+  background: var(--alarm);
+  transform: scaleY(0.08);
+  transform-origin: bottom;
+  will-change: transform;
+}
