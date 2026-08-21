@@ -1,0 +1,877 @@
+/* Design target: the message list, the composer, and nothing else.
+   Type and colour follow the Yiqi sheet: paper ground, ink text, one hard blue.
+
+   Fonts are served from public/fonts rather than a CDN. The phone has to render
+   on a network that reaches the tailnet and nothing else, which is the same
+   reason lib/markdown.js is hand-rolled. Archivo ships as one variable file
+   covering 400-600; three static weights were byte-identical. */
+
+@font-face {
+  font-family: "Archivo";
+  src: url("/fonts/archivo-var.woff2") format("woff2");
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/ibm-plex-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/ibm-plex-mono-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --bg: #faf9f6;
+  --bg-raised: #ffffff;
+  --bg-input: #ffffff;
+  --line: rgba(10, 10, 60, 0.14);
+  --text: #14161a;
+  --text-dim: #5a5a78;
+  /* One step quieter than --text-dim: timestamps, sizes, provenance. The sheet
+     uses #8686a0 here, which is 3.4:1 on paper -- under AA for the 10px type
+     it is set in. Darkened until it clears 4.5:1; same hue, still a tier down
+     from --text-dim. It survives unchanged on the dark ground below. */
+  --faint: #6b6b85;
+  --accent: #0000cc;
+  --accent-hover: #2222f5;
+  --on-accent: #ffffff;
+  --user-bubble: #ededf2;
+  --danger: #b3261e;
+  --radius: 14px;
+  --composer-h: 0px;
+
+  --font-sans: "Archivo", "Helvetica Neue", Helvetica, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* The sheet is drawn light only. This inverts the same hues rather than
+   introducing new ones -- ink becomes the ground, the canvas grey becomes the
+   text. Only the accent is invented: #0000cc is unreadable on a dark ground,
+   so it is lifted until it carries. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --bg-raised: #1b1d22;
+    --bg-input: #202329;
+    --line: rgba(237, 237, 242, 0.12);
+    --text: #ededf2;
+    --text-dim: #a4a4bc;
+    --faint: #8686a0;
+    --accent: #6e6eff;
+    --accent-hover: #8a8aff;
+    --on-accent: #0b0b14;
+    --user-bubble: #23252c;
+    --danger: #f2777a;
+  }
+}
+
+/* The mono label treatment the sheet uses for every piece of metadata:
+   timestamps, model names, file sizes, provenance. */
+.meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Class-level `display` beats the UA rule for [hidden], and the shell relies
+   on the attribute to show the gate, the drawer, and the badge. */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overscroll-behavior-y: none;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 16.5px/1.66 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* --- token gate --------------------------------------------------------- */
+
+.gate {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 24px;
+}
+
+.gate-card {
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gate-card h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.gate-card p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.gate-card input,
+.gate-card button {
+  font: inherit;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+
+.gate-card input {
+  background: var(--bg-input);
+  color: var(--text);
+}
+
+.gate-card button {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.gate-card button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.gate-error {
+  color: var(--danger);
+}
+
+/* --- shell -------------------------------------------------------------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: max(env(safe-area-inset-top), 8px) 8px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.badge[data-tone="warn"] {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.icon-btn:active {
+  background: var(--bg-input);
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+}
+
+/* Glyphs that ship as files rather than inline paths: the file supplies the
+   shape through the mask, `currentColor` supplies the colour. Without this
+   they would paint in whatever fill the file was drawn with -- black, which
+   is invisible against the dark theme. */
+.icon-mask {
+  display: block;
+  width: 22px;
+  height: 22px;
+  background: currentColor;
+  -webkit-mask: var(--mask) center / contain no-repeat;
+  mask: var(--mask) center / contain no-repeat;
+}
+
+/* A badged glyph. The stack is the same 22px box a bare icon occupies, so the
+   badge sits inside the icon's own bounds rather than enlarging it. */
+.icon-stack {
+  position: relative;
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+
+.icon-badge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 11px;
+  height: 11px;
+  /* The disc clears a hole in the artwork behind the badge; without it the
+     plus lands on top of the drawing and neither shape reads. */
+  background: var(--bg);
+  border-radius: 50%;
+  /* Scaled to half size, the shell's 2px stroke would come out under a pixel. */
+  stroke-width: 3.5;
+}
+
+/* --- drawer ------------------------------------------------------------- */
+
+.drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: min(300px, 82vw);
+  z-index: 20;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 8px 12px 16px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+}
+
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.session-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 10px;
+}
+
+.session-list li[data-active="true"] {
+  background: var(--bg-input);
+}
+
+.session-list button {
+  font: inherit;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 10px 12px;
+}
+
+.session-list .session-open {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-list .session-delete {
+  color: var(--text-dim);
+  padding: 10px;
+}
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+/* --- messages ----------------------------------------------------------- */
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 16px calc(var(--composer-h) + 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.msg {
+  max-width: min(46rem, 100%);
+  width: fit-content;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+
+.msg[data-role="user"] {
+  align-self: flex-end;
+  background: var(--user-bubble);
+  border-bottom-right-radius: 4px;
+}
+
+.msg[data-role="assistant"] {
+  align-self: flex-start;
+  padding-left: 0;
+  padding-right: 0;
+  width: 100%;
+}
+
+.msg[data-role="error"] {
+  align-self: flex-start;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  font-size: 14px;
+}
+
+.msg > :first-child {
+  margin-top: 0;
+}
+
+.msg > :last-child {
+  margin-bottom: 0;
+}
+
+.msg p {
+  margin: 0.6em 0;
+}
+
+.msg h1,
+.msg h2,
+.msg h3 {
+  margin: 1em 0 0.4em;
+  line-height: 1.3;
+}
+
+.msg h1 {
+  font-size: 1.3em;
+}
+.msg h2 {
+  font-size: 1.15em;
+}
+.msg h3 {
+  font-size: 1em;
+}
+
+.msg ul,
+.msg ol {
+  margin: 0.6em 0;
+  padding-left: 1.4em;
+}
+
+.msg li {
+  margin: 0.25em 0;
+}
+
+.msg blockquote {
+  margin: 0.6em 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--line);
+  color: var(--text-dim);
+}
+
+.msg a {
+  color: var(--accent);
+}
+
+.msg code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 0.88em;
+  background: var(--bg-input);
+  padding: 0.15em 0.35em;
+  border-radius: 5px;
+}
+
+.msg pre {
+  margin: 0.7em 0;
+  padding: 12px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+.msg pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+.msg table {
+  border-collapse: collapse;
+  margin: 0.7em 0;
+  display: block;
+  overflow-x: auto;
+}
+
+.msg th,
+.msg td {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.cursor::after {
+  content: "▍";
+  color: var(--text-dim);
+  animation: blink 1.1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.empty {
+  margin: auto;
+  color: var(--text-dim);
+  font-size: 15px;
+}
+
+/* --- composer ----------------------------------------------------------- */
+
+.composer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px calc(env(safe-area-inset-bottom) + 8px);
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+
+/* A file is being dragged over the window. The composer is what lights up,
+   because that is where the file is going to end up. */
+.composer[data-dropping="true"] {
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.composer[data-dropping="true"] textarea {
+  border-color: var(--accent);
+  border-style: dashed;
+}
+
+/* The input line itself. The composer above it is a column so staged files can
+   sit on their own row without displacing anything. */
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.composer textarea {
+  flex: 1;
+  font: inherit;
+  resize: none;
+  max-height: 40vh;
+  padding: 11px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: var(--bg-input);
+  color: var(--text);
+}
+
+.composer textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* Scoped to the send button on purpose: the composer holds flat icon buttons
+   too, and a bare `.composer button` rule would paint them all as accent
+   circles. */
+.composer .send {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+
+.composer .send:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.composer .send:disabled {
+  opacity: 0.4;
+}
+
+/* The sheet's mic: an outlined circle that fills with the accent while it is
+   listening, so the state is the button rather than a label beside it. */
+.composer .mic {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  margin-bottom: 2px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+
+.composer .mic:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.composer .mic[data-state="recording"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+/* Transcribing: the recorder has stopped and the model has it. Same pulse the
+   reasoning block uses, so "working" reads the same way everywhere. */
+.composer .mic[data-state="transcribing"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.composer .mic:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Only while listening or transcribing -- a permanent hint is furniture. */
+.composer-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 0 2px;
+}
+
+/* The composer's icon buttons sit level with the send button, not with the
+   top of a textarea that has grown to several lines. Off is dim, on is the
+   accent -- the same blue as the send button, so "lit" reads as active rather
+   than as a second kind of disabled. */
+.composer .icon-btn {
+  color: var(--text-dim);
+  margin-bottom: 2px;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+/* Lit two ways, for two meanings: a toggle that is switched on, and the attach
+   button while files are waiting to go. */
+.composer .icon-btn[aria-pressed="true"],
+.composer .icon-btn[data-active="true"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* --- staged files ------------------------------------------------------- */
+
+.staged {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+.staged-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 5px 6px 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-input);
+  font-size: 13px;
+}
+
+.staged-thumb {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex: none;
+}
+
+.staged-name {
+  min-width: 0;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.staged-size {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  flex: none;
+}
+
+.staged-remove {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.staged-remove:hover {
+  color: var(--text);
+}
+
+/* --- files on a sent message -------------------------------------------- */
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.attachment-image {
+  display: block;
+  line-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+
+.attachment-image img {
+  max-width: min(260px, 100%);
+  max-height: 260px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+
+/* Holds the row's height steady while the bytes are being fetched, so the
+   thread doesn't jump when the picture lands. */
+.attachment-image.placeholder {
+  width: 120px;
+  height: 90px;
+  border-radius: 10px;
+  background: var(--bg-input);
+}
+
+.file-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-input);
+  font-size: 13px;
+  max-width: 100%;
+}
+
+.file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-chip-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  flex: none;
+}
+
+/* Above the drawer, which sits at 20. */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: max(env(safe-area-inset-top), 24px) 24px
+    max(env(safe-area-inset-bottom), 24px);
+  background: color-mix(in srgb, #14161a 88%, transparent);
+  cursor: zoom-out;
+}
+
+.lightbox img {
+  max-width: 100%;
+  max-height: 85vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+/* Fixed light, not tokenised: the backdrop is dark in both themes. */
+.lightbox-name {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ededf2;
+}
+
+/* Keeps a formula from breaking across lines mid-expression. */
+.msg .math {
+  white-space: nowrap;
+}
+
+@media (min-width: 860px) {
+  .messages {
+    padding-left: max(16px, calc(50vw - 26rem));
+    padding-right: max(16px, calc(50vw - 26rem));
+  }
+
+  .composer {
+    padding-left: max(12px, calc(50vw - 26rem));
+    padding-right: max(12px, calc(50vw - 26rem));
+  }
+}
+
+.msg[data-thinking] {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* --- reasoning ---------------------------------------------------------- */
+
+.reasoning {
+  margin-bottom: 10px;
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+}
+
+.reasoning-toggle {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.reasoning-toggle:hover {
+  color: var(--text);
+}
+
+/* Marks the block while the model is still working, so a live pass reads
+   differently from a finished one sitting above an answer. */
+.reasoning[data-live] .reasoning-toggle::after {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 1.2s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* Capped and scrolled rather than allowed to grow: a reasoning pass runs to
+   thousands of tokens and would otherwise push the answer off the screen. */
+.reasoning-body {
+  margin-top: 6px;
+  max-height: 11rem;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
