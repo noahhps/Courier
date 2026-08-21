@@ -32,8 +32,6 @@ export default function App() {
   const [focusToken, setFocusToken] = useState(0);
   // Applied to the document root, so it dresses the gate as well as the app.
   const [accent, setAccent] = useAccent();
-  // Whether the composer's thinking toggle starts on, per the server's config.
-  const [defaultThinking, setDefaultThinking] = useState(false);
 
   const bootstrapped = useRef("");
   const signOutRef = useRef(() => {});
@@ -80,7 +78,6 @@ export default function App() {
         const status = await api.status();
         if (stale()) return;
         localStorage.setItem(TOKEN_KEY, token);
-        setDefaultThinking(Boolean(status.think));
 
         if (status.serving === "none") {
           setBadge({ text: "no model reachable", tone: "warn" });
@@ -172,7 +169,6 @@ export default function App() {
         <Composer
           disabled={chat.streaming}
           focusToken={focusToken}
-          defaultThinking={defaultThinking}
           onSend={chat.send}
         />
       </div>

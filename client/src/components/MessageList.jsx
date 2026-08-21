@@ -39,9 +39,6 @@ export function MessageList({ messages, scrollToken }) {
             role={m.role}
             content={m.content}
             streaming={m.streaming}
-            thinking={m.thinking}
-            reasoning={m.reasoning}
-            attachments={m.attachments}
           />
         ))
       )}

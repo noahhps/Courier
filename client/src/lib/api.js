@@ -98,21 +98,10 @@ export function createApi(token, onUnauthorized = () => {}) {
     getSession: (id) => json("/sessions/" + id),
     deleteSession: (id) => request("/sessions/" + id, { method: "DELETE" }),
     // Resolves to the raw response -- the caller drives it with readEvents().
-    chat: (message, sessionId, attachments = [], think = null) =>
+    chat: (message, sessionId) =>
       request("/chat", {
         method: "POST",
-        body: JSON.stringify({
-          message,
-          session_id: sessionId,
-          attachments: attachments.map(({ name, mime, data }) => ({ name, mime, data })),
-          think,
-        }),
+        body: JSON.stringify({ message, session_id: sessionId }),
       }),
-
-    // An attachment's bytes. Fetched rather than linked because the endpoint
-    // wants an Authorization header, and an <img src> cannot send one -- the
-    // caller turns this into an object URL.
-    attachment: async (id) => (await request("/attachments/" + id)).blob(),
-
   };
 }

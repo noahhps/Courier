@@ -46,4 +46,18 @@ the `.jsx` files alone.
   rewritten by hand. Includes `attachments.py` (validation, image
   normalisation), `extract.py` (PDF/Office text), and the attachment and
   `think` paths through `api.py`, `orchestrator.py`, `store.py` and the
-  providers. The client was left untouched and still sends both.
+  providers. The client was left untouched at the time and still sent both;
+  the snapshot below is the other half.
+
+- `20260820-171125-frontend-files-thinking` — the client side of the same two
+  features, before it was cut back to match the server: `Attachments.jsx`
+  (staged list, message thumbnails, lightbox), `Reasoning.jsx` (the live
+  thinking panel), `lib/files.js` (base64 reading, size formatting), and the
+  attachment and `think` paths through `Composer.jsx`, `Message.jsx`,
+  `MessageList.jsx`, `useChat.js`, `lib/api.js` and `App.jsx`.
+
+  The two buttons were deliberately left in the composer, along with every
+  style rule behind them, so only the wiring has to be put back. Restoring
+  means copying these files over the current ones — they are self-consistent
+  as a set, and expect a server that still accepts `attachments` and `think`,
+  so restore `20260820-161938-backend-files-thinking` with them.

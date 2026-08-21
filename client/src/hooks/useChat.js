@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError, UnauthorizedError, readEvents } from "../lib/api";
-import { readFiles } from "../lib/files";
 
 // Local-only identity for list keys. Server message ids exist but arrive after
 // a bubble is already on screen, so the UI needs its own handle from the start.
@@ -35,22 +34,14 @@ export function useChat(api, { onSessionsChanged }) {
   // Deltas arrive faster than the screen refreshes. Coalescing them into one
   // state update per frame keeps a long answer from re-rendering the markdown
   // sixty-plus times a second for no visible gain.
-  //
-  // Reasoning rides the same buffer rather than a second one: it arrives token
-  // by token like the answer does, faster and usually in far greater volume,
-  // so it is the stream that needs the batching most.
   const frame = useRef(0);
-  const pending = useRef({ key: null, text: "", reasoning: "" });
+  const pending = useRef({ key: null, text: "" });
 
   const flush = useCallback(() => {
-    const { key, text, reasoning } = pending.current;
+    const { key, text } = pending.current;
     if (key === null) return;
     setMessages((prev) =>
-      prev.map((m) =>
-        m.key === key
-          ? { ...m, content: text, reasoning, thinking: !text && m.thinking }
-          : m,
-      ),
+      prev.map((m) => (m.key === key ? { ...m, content: text } : m)),
     );
   }, []);
 
@@ -68,7 +59,7 @@ export function useChat(api, { onSessionsChanged }) {
       frame.current = 0;
     }
     flush();
-    pending.current = { key: null, text: "", reasoning: "" };
+    pending.current = { key: null, text: "" };
   }, [flush]);
 
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
@@ -82,10 +73,8 @@ export function useChat(api, { onSessionsChanged }) {
       setTitle(data.session.title || "Untitled");
       setMessages(
         data.messages
-          // A turn can be a file with nothing typed, so an empty body is only
-          // uninteresting when nothing came with it.
-          .filter((m) => m.role !== "system" && (m.content || m.attachments?.length))
-          .map((m) => message(m.role, m.content, { attachments: m.attachments })),
+          .filter((m) => m.role !== "system" && m.content)
+          .map((m) => message(m.role, m.content)),
       );
       jumpToEnd();
       onSessionsChanged();
@@ -103,8 +92,8 @@ export function useChat(api, { onSessionsChanged }) {
   // -- the turn -------------------------------------------------------------
 
   const send = useCallback(
-    async (text, files = [], think = null) => {
-      if (streaming || (!text.trim() && !files.length)) return;
+    async (text) => {
+      if (streaming || !text.trim()) return;
       setStreaming(true);
 
       const answer = message("assistant", "", { streaming: true });
@@ -114,9 +103,7 @@ export function useChat(api, { onSessionsChanged }) {
 
       let active = sessionId;
       let content = "";
-      let reasoning = "";
-      let announced = false;
-      pending.current = { key: answer.key, text: "", reasoning: "" };
+      pending.current = { key: answer.key, text: "" };
 
       // Whatever arrived before the failure is kept; a bubble that never got a
       // single token is not worth leaving behind above the error.
@@ -127,18 +114,7 @@ export function useChat(api, { onSessionsChanged }) {
         ]);
 
       try {
-        // Read before the request so the bubble can show the picture straight
-        // away: the same base64 that goes up is what the preview renders from,
-        // which costs nothing extra and avoids an object URL to keep track of.
-        const attachments = files.length ? await readFiles(files) : [];
-        if (attachments.length) {
-          setMessages((prev) =>
-            prev.map((m) => (m.key === asked.key ? { ...m, attachments } : m)),
-          );
-          jumpToEnd();
-        }
-
-        const response = await api.chat(text, sessionId, attachments, think);
+        const response = await api.chat(text, sessionId);
 
         for await (const { event, data } of readEvents(response)) {
           if (event === "session") {
@@ -149,23 +125,9 @@ export function useChat(api, { onSessionsChanged }) {
               text: data.source === "fallback" ? "cloud · " + data.model : data.model,
               tone: data.source === "fallback" ? "warn" : null,
             });
-          } else if (event === "thinking") {
-            // The model's working, not its answer. Shown live, never stored:
-            // reopening the conversation gives back the reply alone.
-            if (!announced) {
-              announced = true;
-              // Once, so there is something on screen in the gap before the
-              // first reasoning token lands.
-              setMessages((prev) =>
-                prev.map((m) => (m.key === answer.key ? { ...m, thinking: true } : m)),
-              );
-            }
-            reasoning += data.text || "";
-            pending.current = { key: answer.key, text: content, reasoning };
-            schedule();
           } else if (event === "delta") {
             content += data.text;
-            pending.current = { key: answer.key, text: content, reasoning };
+            pending.current = { key: answer.key, text: content };
             schedule();
           } else if (event === "error") {
             flush();
@@ -178,10 +140,9 @@ export function useChat(api, { onSessionsChanged }) {
         // A rejected token has already dropped the app back to the gate;
         // stacking "lost the connection" on top of that says nothing.
         if (!(error instanceof UnauthorizedError)) {
-          // A refusal from the server -- a file too large, or of a kind no
-          // model can read -- already says what went wrong and why. Only a
-          // genuinely dropped connection needs to be described as one.
-          const explained = error instanceof ApiError || error.name === "FileReadError";
+          // A refusal from the server already says what went wrong and why.
+          // Only a genuinely dropped connection needs to be described as one.
+          const explained = error instanceof ApiError;
           fail(explained ? error.message : "Lost the connection: " + error.message);
         }
       } finally {
