@@ -45,9 +45,10 @@ else
   if [ -x .venv/Scripts/python.exe ]; then PY=.venv/Scripts/python.exe; else PY=.venv/bin/python; fi
 fi
 
-# Cheapest honest check that the server's dependencies are actually installed:
-# import the ones that arrived late (images, documents, dictation).
-if ! "$PY" -c "import fastapi, PIL, pypdf, faster_whisper" >/dev/null 2>&1; then
+# Cheapest honest check that the server's dependencies are actually installed.
+# Kept to what pyproject.toml actually declares: naming a package that is no
+# longer a dependency makes this fail forever and reinstall on every single run.
+if ! "$PY" -c "import fastapi, uvicorn, httpx, pydantic" >/dev/null 2>&1; then
   say "installing server dependencies"
   "$PY" -m pip install --quiet --upgrade pip
   "$PY" -m pip install --quiet -e ./server
