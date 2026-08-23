@@ -16,7 +16,7 @@ const message = (role, content = "", extra = {}) => ({
  * The conversation: which session is open, what is in it, and the turn in
  * flight. Everything durable lives on the server -- this is a view of it.
  */
-export function useChat(api, { onSessionsChanged }) {
+export function useChat(api, { onSessionsChanged, provider = null }) {
   const [messages, setMessages] = useState([]);
   const [sessionId, setSessionId] = useState(null);
   // Mirror of the above, readable from a callback that outlived its render --
@@ -34,35 +34,55 @@ export function useChat(api, { onSessionsChanged }) {
   // Deltas arrive faster than the screen refreshes. Coalescing them into one
   // state update per frame keeps a long answer from re-rendering the markdown
   // sixty-plus times a second for no visible gain.
+  //
+  // Reasoning rides the same buffer rather than a second one: it arrives token
+  // by token like the answer does, faster and usually in far greater volume,
+  // so it is the stream that needs the batching most.
   const frame = useRef(0);
-  const pending = useRef({ key: null, text: "" });
+  const timer = useRef(0);
+  const pending = useRef({ key: null, text: "", reasoning: "" });
 
   const flush = useCallback(() => {
-    const { key, text } = pending.current;
+    const { key, text, reasoning } = pending.current;
     if (key === null) return;
     setMessages((prev) =>
-      prev.map((m) => (m.key === key ? { ...m, content: text } : m)),
+      prev.map((m) =>
+        m.key === key
+          ? { ...m, content: text, reasoning, thinking: !text && m.thinking }
+          : m,
+      ),
     );
   }, []);
 
-  const schedule = useCallback(() => {
-    if (frame.current) return;
-    frame.current = requestAnimationFrame(() => {
-      frame.current = 0;
-      flush();
-    });
-  }, [flush]);
-
-  const settle = useCallback(() => {
+  const clearPendingFlush = useCallback(() => {
     if (frame.current) {
       cancelAnimationFrame(frame.current);
       frame.current = 0;
     }
-    flush();
-    pending.current = { key: null, text: "" };
-  }, [flush]);
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = 0;
+    }
+  }, []);
 
-  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+  const schedule = useCallback(() => {
+    if (frame.current || timer.current) return;
+    const run = () => {clearPendingFlush(); flush();};
+    frame.current = requestAnimationFrame(run);
+
+    timer.current = setTimeout(run, 250);
+  }, [clearPendingFlush, flush]);
+
+  const settle = useCallback(() => {
+    clearPendingFlush();
+    flush();
+    pending.current = { key: null, text: "", reasoning: "" };
+  }, [clearPendingFlush, flush]);
+
+  // The cleanup is `clearPendingFlush` itself -- an extra arrow here would
+  // return the function on unmount instead of calling it, and the pending
+  // frame and timer would outlive the component.
+  useEffect(() => clearPendingFlush, [clearPendingFlush]);
 
   // -- navigation -----------------------------------------------------------
 
@@ -92,7 +112,7 @@ export function useChat(api, { onSessionsChanged }) {
   // -- the turn -------------------------------------------------------------
 
   const send = useCallback(
-    async (text) => {
+    async (text, thinkingLevel = null) => {
       if (streaming || !text.trim()) return;
       setStreaming(true);
 
@@ -103,7 +123,9 @@ export function useChat(api, { onSessionsChanged }) {
 
       let active = sessionId;
       let content = "";
-      pending.current = { key: answer.key, text: "" };
+      let reasoning = "";
+      let announced = false;
+      pending.current = { key: answer.key, text: "", reasoning: "" };
 
       // Whatever arrived before the failure is kept; a bubble that never got a
       // single token is not worth leaving behind above the error.
@@ -114,7 +136,7 @@ export function useChat(api, { onSessionsChanged }) {
         ]);
 
       try {
-        const response = await api.chat(text, sessionId);
+        const response = await api.chat(text, sessionId, thinkingLevel, provider);
 
         for await (const { event, data } of readEvents(response)) {
           if (event === "session") {
@@ -125,9 +147,21 @@ export function useChat(api, { onSessionsChanged }) {
               text: data.source === "fallback" ? "cloud · " + data.model : data.model,
               tone: data.source === "fallback" ? "warn" : null,
             });
+          } else if (event === "thinking") {
+            if (!announced) {
+              announced = true;
+              // Once, so there is something on screen in the gap before the
+              // first reasoning token lands.
+              setMessages((prev) =>
+                prev.map((m) => (m.key === answer.key ? { ...m, thinking: true } : m)),
+              );
+            }
+            reasoning += data.text || "";
+            pending.current = { key: answer.key, text: content, reasoning };
+            schedule();
           } else if (event === "delta") {
             content += data.text;
-            pending.current = { key: answer.key, text: content };
+            pending.current = { key: answer.key, text: content, reasoning };
             schedule();
           } else if (event === "error") {
             flush();
@@ -169,7 +203,17 @@ export function useChat(api, { onSessionsChanged }) {
         }
       }
     },
-    [api, flush, jumpToEnd, onSessionsChanged, schedule, sessionId, settle, streaming],
+    [
+      api,
+      flush,
+      jumpToEnd,
+      onSessionsChanged,
+      provider,
+      schedule,
+      sessionId,
+      settle,
+      streaming,
+    ],
   );
 
   return {

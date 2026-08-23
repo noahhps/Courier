@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from .config import ThinkingLevel
 from .orchestrator import Orchestrator
 from .providers import ProviderRouter
 from .store import Store
@@ -26,6 +27,9 @@ class ChatRequest(BaseModel):
     # "local" | "cloud" | None (auto). Never switch silently -- the client
     # asks for a specific provider or accepts whatever the router picks.
     provider: str | None = None
+    # gpt-oss accepts a reasoning effort, rather than a true/false switch.
+    # None leaves the server's OLLAMA_THINK default in charge.
+    think: ThinkingLevel | None = None
 
 
 class RenameRequest(BaseModel):
@@ -83,7 +87,7 @@ def build_router(
         async def frames():
             yield f'event: session\ndata: {{"session_id": "{session_id}"}}\n\n'
             async for frame in orchestrator.run_turn(
-                session_id, body.message, prefer=body.provider
+                session_id, body.message, prefer=body.provider, think=body.think
             ):
                 if await request.is_disconnected():
                     break
@@ -115,6 +119,7 @@ def build_router(
             },
             "cloud": {"healthy": cloud_ok, "model": providers.cloud.model},
             "serving": "local" if local_ok else ("cloud" if cloud_ok else "none"),
+            # ADD THIS NEW KEY:
+            "default_provider": "local", 
         }
-
     return router

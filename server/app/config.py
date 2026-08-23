@@ -9,8 +9,12 @@ import os
 import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal, cast
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+ThinkingLevel = Literal["low", "medium", "high"]
+_THINKING_LEVELS = frozenset(("low", "medium", "high"))
 
 
 def _env(name: str, default: str) -> str:
@@ -22,6 +26,14 @@ def _env_int(name: str, default: int) -> int:
     if raw is None or not raw.strip():
         return default
     return int(raw)
+
+def _env_thinking_level(name: str, default: ThinkingLevel) -> ThinkingLevel:
+    """Read the reasoning effort understood by gpt-oss via Ollama."""
+    value = _env(name, default).lower()
+    if value not in _THINKING_LEVELS:
+        choices = ", ".join(sorted(_THINKING_LEVELS))
+        raise ValueError(f"{name} must be one of: {choices}")
+    return cast(ThinkingLevel, value)
 
 
 @dataclass(frozen=True)
@@ -49,7 +61,12 @@ class Settings:
 
     # --- inference -------------------------------------------------------
     ollama_url: str = field(default_factory=lambda: _env("OLLAMA_URL", "http://127.0.0.1:11434"))
-    ollama_model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", "gemma4"))
+    ollama_model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", "gpt-oss"))
+    # gpt-oss uses a three-level reasoning effort, not a boolean. This is the
+    # fallback when an API caller does not choose a level of its own.
+    ollama_think: ThinkingLevel = field(
+        default_factory=lambda: _env_thinking_level("OLLAMA_THINK", "medium")
+    )
 
     # Rough working-context budget in tokens. The window builder trims to fit;
     # real compaction (summarise the middle, keep head and tail) is phase 5.
@@ -60,10 +77,24 @@ class Settings:
     system_preamble: str = field(
         default_factory=lambda: _env(
             "SYSTEM_PREAMBLE",
+            "You are Marco, an AI assistant."
             "You are a personal assistant running on the user's own hardware. "
             "Be direct and concrete. Skip preamble and flattery. "
             "Use markdown when it aids scanning; otherwise plain prose. "
-            "If you don't know something, say so rather than guessing."
+            "Match the user’s tone, language, depth, and formality."
+            #"When replying in Chinese, use full‑width punctuation (，。：；、？！“”‘’（）《》——……)."
+            "Show the outcome, not the machinery unless the user requests it specifically."
+            "You currently do not have access to any tools."
+            "Express genuine uncertainty when needed."
+            #"If a fact might have changed (prices, news, roles, “latest”, etc.), perform a web search first and cite the source."
+            #"Keep citations as [^N^] where N is the source number."
+            #"The current date will be supplied in YYYY‑MM‑DD format."
+            "You should supply the date in DD-MM-YYYY format if necessary, if not possible, say so"
+            #"If the user requests a file, create it with a human‑readable name in the user’s language and tag it only if it is a final deliverable."
+            #"Do not create or modify any files unless explicitly asked."
+            "Do not apologize excessively; acknowledge and correct mistakes briefly."
+            "If the user is wrong, state it directly and explain why."
+            "End of system prompt."
             ,
         )
     )
@@ -74,6 +105,7 @@ def load_settings() -> Settings:
     if not settings.auth_token:
         token = _load_or_create_token(settings.db_path.parent / "token")
         settings = Settings(**{**settings.__dict__, "auth_token": token})
+        
     settings.db_path.parent.mkdir(parents=True, exist_ok=True)
     return settings
 

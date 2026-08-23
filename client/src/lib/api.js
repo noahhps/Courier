@@ -98,10 +98,18 @@ export function createApi(token, onUnauthorized = () => {}) {
     getSession: (id) => json("/sessions/" + id),
     deleteSession: (id) => request("/sessions/" + id, { method: "DELETE" }),
     // Resolves to the raw response -- the caller drives it with readEvents().
-    chat: (message, sessionId) =>
+    // `provider` is "local", "cloud", or null for whatever the router picks.
+    // Never switch silently -- the server records which one answered and the
+    // reply's meta frame says so.
+    chat: (message, sessionId, thinkingLevel = null, provider = null) =>
       request("/chat", {
         method: "POST",
-        body: JSON.stringify({ message, session_id: sessionId }),
+        body: JSON.stringify({
+          message,
+          session_id: sessionId,
+          think: thinkingLevel,
+          provider,
+        }),
       }),
   };
 }

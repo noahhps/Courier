@@ -2,18 +2,25 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Icon } from "./Icon";
 
-export function Composer({ disabled, focusToken, onSend }) {
+const EFFORTS = ["low", "medium", "high"];
+
+/**
+ * The composer from artboard 1a: one rounded box, the text on its own line,
+ * and a row of chips beneath it with the send button at the right.
+ *
+ * The reasoning control is a three-way chip group rather than the old slider.
+ * The design has no sliders in it, and three named states read faster than a
+ * track with an output label under it.
+ */
+export function Composer({ disabled, focusToken, sessionLabel, onSend }) {
   const [value, setValue] = useState("");
-  // Latches and looks latched, and that is all it does for now: nothing reads
-  // it. See the note above the two buttons below.
-  const [thinkingOn, setThinkingOn] = useState(false);
+  const [effort, setEffort] = useState("medium");
   const form = useRef(null);
   const input = useRef(null);
 
   // Grow with the text, up to 40% of the viewport. The message list pads
-  // itself by --composer-h, so the last bubble is never behind the box --
-  // which means anything else that changes the composer's height has to
-  // re-measure too.
+  // itself by --composer-h, so the last turn is never behind the box -- which
+  // means anything that changes the composer's height has to re-measure too.
   useLayoutEffect(() => {
     const node = input.current;
     node.style.height = "auto";
@@ -28,7 +35,7 @@ export function Composer({ disabled, focusToken, onSend }) {
   // contents. This covers everything that changes its box for other reasons --
   // the drawer opening and narrowing it, the window resizing, a font landing --
   // any of which can rewrap the text and leave --composer-h stale, so the last
-  // message ends up behind the input.
+  // turn ends up behind the input.
   useEffect(() => {
     const node = form.current;
     const observer = new ResizeObserver(() => {
@@ -53,50 +60,16 @@ export function Composer({ disabled, focusToken, onSend }) {
 
     const text = value;
     setValue("");
-    onSend(text);
+    onSend(text, effort);
   };
 
   return (
     <form className="composer" ref={form} onSubmit={submit}>
-      <div className="composer-row">
-        {/* Both of these are deliberately inert.
-
-            Attachments and the thinking pass were taken out of the server so
-            they could be written again by hand, and taken out of the client to
-            match: nothing here reads a file, and nothing sends `think`. The
-            buttons stay because the layout and the hover, press and latch
-            states are worth keeping wired up while the rest is rebuilt --
-            re-pointing them at a working endpoint later is a smaller job than
-            putting them back from nothing.
-
-            The titles say so, because a control that silently does nothing is
-            worse than one that admits it. */}
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label="Attach files"
-          title="Attachments are being rebuilt — this does nothing yet."
-          disabled={disabled}
-        >
-          <Icon name="attachment" badge="plus" />
-        </button>
-
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label="Thinking"
-          title="Reasoning is being rebuilt — this toggles, but nothing reads it yet."
-          aria-pressed={thinkingOn}
-          disabled={disabled}
-          onClick={() => setThinkingOn((on) => !on)}
-        >
-          <Icon name="thinking" />
-        </button>
-
+      <div className="composer-box">
         <textarea
           ref={input}
           rows="1"
-          placeholder="Message"
+          placeholder="Ask anything, or drop in a document…"
           autoComplete="off"
           autoCapitalize="sentences"
           value={value}
@@ -112,9 +85,41 @@ export function Composer({ disabled, focusToken, onSend }) {
           }}
         />
 
-        <button type="submit" className="send" aria-label="Send" disabled={disabled}>
-          <Icon name="send" />
-        </button>
+        <div className="composer-row">
+          {/* Attachments are still being rebuilt on the server: there is no
+              /api/attachments route to post to. Left visible and inert, with
+              the reason on the tooltip, rather than removed and forgotten. */}
+          <button
+            type="button"
+            className="chip"
+            title="Attachments are being rebuilt — this does nothing yet."
+            disabled
+          >
+            Attach
+          </button>
+
+          {sessionLabel ? <span className="chip">{sessionLabel}</span> : null}
+
+          <div className="spacer" />
+
+          <div className="effort" role="group" aria-label="Reasoning effort">
+            {EFFORTS.map((level) => (
+              <button
+                key={level}
+                type="button"
+                aria-pressed={effort === level}
+                disabled={disabled}
+                onClick={() => setEffort(level)}
+              >
+                {level}
+              </button>
+            ))}
+          </div>
+
+          <button type="submit" className="send" aria-label="Send" disabled={disabled}>
+            <Icon name="send" />
+          </button>
+        </div>
       </div>
     </form>
   );

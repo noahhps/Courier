@@ -44,6 +44,7 @@ class AnthropicProvider:
         messages: Sequence[Message],
         *,
         tools: Sequence[dict] | None = None,
+        think: str | None = None,
     ) -> AsyncIterator[Chunk]:
         client = self._ensure_client()
 
@@ -60,13 +61,16 @@ class AnthropicProvider:
             "model": self.model,
             "max_tokens": self.max_tokens,
             "messages": turns,
-            "output_config": {"effort": _EFFORT},
+            # The local names map cleanly to Anthropic's effort levels. It is
+            # not the same reasoning implementation as gpt-oss, but a user
+            # choosing a slower, deeper answer should keep that intent after
+            # a cloud fallback.
+            "output_config": {"effort": think or _EFFORT},
         }
         if system:
             request["system"] = system
         if tools:
             request["tools"] = list(tools)
-
         try:
             async with client.messages.stream(**request) as stream:
                 async for text in stream.text_stream:

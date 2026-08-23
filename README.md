@@ -170,22 +170,19 @@ All environment variables, all optional.
 | `CLIENT_DIR` | `client/dist` | The built UI. Missing means API-only. |
 | `OLLAMA_URL` | `http://127.0.0.1:11434` | |
 | `OLLAMA_MODEL` | `qwen3:14b` | |
-| `OLLAMA_THINK` | model default | `false` disables the reasoning pass. See below. |
+| `OLLAMA_THINK` | `medium` | Default gpt-oss reasoning effort: `low`, `medium`, or `high`. |
 | `CONTEXT_TOKENS` | `32768` | |
 | `REPLY_TOKENS` | `2048` | Headroom reserved for the answer. |
 | `SYSTEM_PREAMBLE` | see `config.py` | Kept static — it is the cacheable prefix. |
 | `ANTHROPIC_API_KEY` | unset | Enables cloud fallback. `pip install -e "./server[cloud]"`. |
 
-### Reasoning models and `OLLAMA_THINK`
+### gpt-oss reasoning effort and `OLLAMA_THINK`
 
-qwen3 and deepseek-r1 think before answering. Left alone, that reasoning goes
-to Ollama's separate `thinking` channel: the client shows *thinking…* and the
-saved answer stays clean, at the cost of latency and tokens.
-
-Setting `OLLAMA_THINK=false` makes replies start immediately, but on qwen3 the
-model then writes its reasoning into the visible answer instead — worse output,
-not better. Prefer leaving it unset and using a model whose speed you're happy
-with.
+gpt-oss accepts `low`, `medium`, or `high` for its reasoning effort. The
+composer's slider selects that level for each message; `OLLAMA_THINK` provides
+the server default for API callers that do not send one. Higher levels take
+longer and use more tokens. Reasoning arrives on Ollama's separate `thinking`
+channel, so it can be shown live without being stored with the answer.
 
 ---
 

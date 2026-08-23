@@ -1,45 +1,79 @@
 import { memo, useMemo } from "react";
 
 import { renderMarkdown } from "../lib/markdown";
+import { Reasoning } from "./Reasoning";
 
 /**
- * One bubble.
+ * One turn.
+ *
+ * The user's words are a bubble on the right. An answer is the margin-and-rule
+ * layout from artboard 1a: a narrow column of what the system drew on, a
+ * hairline, then the prose.
+ *
+ * The margin is deliberately rendered even when it is empty. It is where
+ * recalled facts and read documents will go once there is a memory layer to
+ * fill it, and reserving the column now means the answer does not shift
+ * sideways the day it arrives. Until then it carries the one piece of
+ * provenance the server does report: which model produced the turn.
  *
  * Memoised because a streaming answer re-renders on every animation frame and
- * the settled messages above it have not changed a character.
+ * the settled turns above it have not changed a character.
  */
-export const Message = memo(function Message({ role, content, streaming }) {
+export const Message = memo(function Message({
+  role,
+  content,
+  streaming,
+  thinking,
+  reasoning,
+  model,
+}) {
   // renderMarkdown escapes the source before emitting a single tag, so no
   // model output reaches the DOM as markup. That is the whole contract; see
   // lib/markdown.js.
   const html = useMemo(
-    () => (role === "assistant" ? { __html: renderMarkdown(content) } : null),
+    () => (role === "assistant" && content ? { __html: renderMarkdown(content) } : null),
     [role, content],
   );
 
-  const className = "msg" + (streaming ? " cursor" : "");
-
-  // The turn has started and nothing has come back yet. The sheet fills this
-  // moment with a blinking WORKING plate rather than an empty bubble -- and it
-  // carries no `cursor`, since the plate is the thing that blinks.
-  if (streaming && !content) {
+  if (role === "user") {
     return (
-      <div className="msg" data-role={role}>
-        <span className="working">Working</span>
+      <div className="turn-user">
+        <div className="bubble">{content}</div>
       </div>
     );
   }
 
-  // The markdown stays the bubble's own innerHTML rather than gaining a
-  // wrapper: the stylesheet trims the margin off `.msg > :first-child`, and a
-  // div in between would leave a blank line above every answer.
-  if (html) {
-    return <div className={className} data-role={role} dangerouslySetInnerHTML={html} />;
+  if (role === "error") {
+    return <div className="turn-error">{content}</div>;
   }
 
   return (
-    <div className={className} data-role={role}>
-      {content}
+    <div className="turn-answer">
+      <div className="margin">
+        {model ? (
+          <>
+            <span className="mi">Answered by</span>
+            <p data-soft>{model}</p>
+          </>
+        ) : null}
+      </div>
+      <div className="margin-rule" data-soft={model ? undefined : true} />
+
+      <div className="answer">
+        {reasoning ? (
+          <Reasoning text={reasoning} answering={Boolean(content)} />
+        ) : null}
+
+        {html ? (
+          <div className="body" dangerouslySetInnerHTML={html} />
+        ) : streaming ? (
+          // The gap between the turn starting and its first token. Without
+          // something here the answer column is simply blank.
+          <span className="working">{thinking ? "Thinking" : "Working"}</span>
+        ) : (
+          <div className="body">{content}</div>
+        )}
+      </div>
     </div>
   );
 });

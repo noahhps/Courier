@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 
-from .config import Settings
+from .config import Settings, ThinkingLevel
 from .providers import Chunk, ContextOverflow, Message, ProviderError, ProviderRouter
 from .store import Store, StoredMessage
 
@@ -74,6 +74,7 @@ class Orchestrator:
         session_id: str,
         user_text: str,
         *,
+        think: ThinkingLevel | None = None,
         prefer: str | None = None,
     ) -> AsyncIterator[str]:
         """Yield SSE frames for one turn.
@@ -110,7 +111,15 @@ class Orchestrator:
         final: Chunk | None = None
         saved = False
         try:
-            async for chunk in self._stream_with_recovery(provider, window):
+            thinking_level = think or self.settings.ollama_think
+            async for chunk in self._stream_with_recovery(
+                provider, window, think=thinking_level
+            ):
+                # The model's working, not its answer. Sent live and never
+                # added to `parts`, so it is not persisted: reopening the
+                # conversation gives back the reply alone.
+                if chunk.thinking:
+                    yield _sse("thinking", {"text": chunk.thinking})
                 if chunk.text:
                     parts.append(chunk.text)
                     yield _sse("delta", {"text": chunk.text})
@@ -139,18 +148,18 @@ class Orchestrator:
         )
 
     async def _stream_with_recovery(
-        self, provider, window: list[Message]
+        self, provider, window: list[Message], *, think: str | None = None,
     ) -> AsyncIterator[Chunk]:
         """Section 7: on OOM or overflow, retry once with a smaller window."""
         try:
-            async for chunk in provider.stream(window):
+            async for chunk in provider.stream(window, think=think):
                 yield chunk
             return
         except ContextOverflow:
             pass  # fall through to the reduced-context retry
 
         reduced = [window[0], *window[-5:]] if len(window) > 6 else window
-        async for chunk in provider.stream(reduced):
+        async for chunk in provider.stream(reduced, think=think):
             yield chunk
 
     def _persist(

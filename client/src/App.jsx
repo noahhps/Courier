@@ -4,17 +4,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Composer } from "./components/Composer";
-import { Drawer } from "./components/Drawer";
+import { Memory } from "./components/Memory";
 import { MessageList } from "./components/MessageList";
+import { NavRail } from "./components/NavRail";
+import { Settings } from "./components/Settings";
+import { Skills } from "./components/Skills";
 import { TokenGate } from "./components/TokenGate";
 import { TopBar } from "./components/TopBar";
-import { useAccent } from "./hooks/useAccent";
 import { useChat } from "./hooks/useChat";
 import { useSessions } from "./hooks/useSessions";
 import { UnauthorizedError, createApi } from "./lib/api";
 import { ApiContext } from "./lib/api-context";
 
 const TOKEN_KEY = "unified-llm-token";
+// Whether the rail stays out. A layout preference rather than data, so it is
+// the one thing besides the token this client is allowed to remember.
+const PIN_KEY = "unified-llm-rail-pinned";
 
 // "boot" is the silent pass with a token already in storage -- the common
 // case, and the one that must not flash a login screen on every launch.
@@ -28,10 +33,27 @@ export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
   const [phase, setPhase] = useState(() => (localStorage.getItem(TOKEN_KEY) ? BOOT : GATE));
   const [gateError, setGateError] = useState("");
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [focusToken, setFocusToken] = useState(0);
-  // Applied to the document root, so it dresses the gate as well as the app.
-  const [accent, setAccent] = useAccent();
+  // Which of the rail's three destinations is on screen.
+  const [view, setView] = useState("chat");
+  const [railPinned, setRailPinned] = useState(
+    () => localStorage.getItem(PIN_KEY) === "1",
+  );
+  const togglePin = useCallback(
+    () =>
+      setRailPinned((was) => {
+        localStorage.setItem(PIN_KEY, was ? "0" : "1");
+        return !was;
+      }),
+    [],
+  );
+  // The last /status payload. Drives the circle at the foot of the rail and
+  // the settings page; the per-turn badge in the top bar is separate and more
+  // current, because it reports which provider actually answered.
+  const [status, setStatus] = useState(null);
+  // "local" | "cloud" | null. Null lets the server's router decide, which is
+  // the default and usually the right answer.
+  const [provider, setProvider] = useState(null);
 
   const bootstrapped = useRef("");
   const signOutRef = useRef(() => {});
@@ -58,7 +80,7 @@ export default function App() {
     refresh().catch(() => {});
   }, [refresh]);
 
-  const chat = useChat(api, { onSessionsChanged });
+  const chat = useChat(api, { onSessionsChanged, provider });
   const { setBadge, openSession, startNew } = chat;
 
   // -- bootstrap ------------------------------------------------------------
@@ -75,14 +97,15 @@ export default function App() {
 
     (async () => {
       try {
-        const status = await api.status();
+        const reported = await api.status();
         if (stale()) return;
         localStorage.setItem(TOKEN_KEY, token);
+        setStatus(reported);
 
-        if (status.serving === "none") {
-          setBadge({ text: "no model reachable", tone: "warn" });
-        } else if (status.serving === "cloud") {
-          setBadge({ text: "cloud · " + status.cloud.model, tone: "warn" });
+        if (reported.serving === "none") {
+          setBadge({ text: "no model reachable", tone: "down" });
+        } else if (reported.serving === "cloud") {
+          setBadge({ text: "cloud · " + reported.cloud.model, tone: "warn" });
         }
 
         const list = await refresh();
@@ -109,7 +132,7 @@ export default function App() {
   }, []);
 
   const handleNewSession = useCallback(() => {
-    setDrawerOpen(false);
+    setView("chat");
     startNew();
     setFocusToken((n) => n + 1);
   }, [startNew]);
@@ -120,6 +143,14 @@ export default function App() {
       if (id === chat.sessionId) startNew();
     },
     [sessions, chat.sessionId, startNew],
+  );
+
+  const handleOpenSession = useCallback(
+    (id) => {
+      setView("chat");
+      openSession(id).catch(() => {});
+    },
+    [openSession],
   );
 
   // -- render ---------------------------------------------------------------
@@ -138,41 +169,66 @@ export default function App() {
 
   return (
     <ApiContext.Provider value={api}>
-    <div className="app" data-drawer={drawerOpen ? "open" : undefined}>
-      <Drawer
-        open={drawerOpen}
-        sessions={sessions.sessions}
-        activeId={chat.sessionId}
-        accent={accent}
-        onAccent={setAccent}
-        onOpenSession={(id) => openSession(id).catch(() => {})}
-        onDelete={handleDelete}
-        onClose={() => setDrawerOpen(false)}
-      />
-
-      {/* The conversation as one column, so that on a wide screen the drawer
-          can sit beside it and simply take its width, rather than each piece
-          having to be placed against a grid. */}
-      <div className="thread">
-        <TopBar
-          title={chat.title}
-          badge={chat.badge}
-          onOpenDrawer={() => {
-            setDrawerOpen(true);
-            onSessionsChanged();
-          }}
+      <div className="app" data-rail={railPinned ? "pinned" : undefined}>
+        {/* The conversation list lives inside the rail now -- it unfolds under
+            Chat when the rail opens, so there is no drawer to slide over the
+            thread and no second place to look for the same list. */}
+        <NavRail
+          view={view}
+          onView={setView}
+          status={status}
+          provider={provider}
+          onProvider={setProvider}
+          pinned={railPinned}
+          onTogglePin={togglePin}
+          sessions={sessions.sessions}
+          activeId={chat.sessionId}
+          onOpenSession={handleOpenSession}
           onNewSession={handleNewSession}
+          onDelete={handleDelete}
         />
 
-        <MessageList messages={chat.messages} scrollToken={chat.scrollToken} />
+        {/* One column beside the rail. The drawer overlays it rather than
+            sitting in the flow, so switching destinations never reflows the
+            thread underneath. */}
+        <div className="screen">
+          {view === "chat" ? (
+            <>
+              <TopBar
+                title={chat.title}
+                badge={chat.badge}
+                onNewSession={handleNewSession}
+              />
 
-        <Composer
-          disabled={chat.streaming}
-          focusToken={focusToken}
-          onSend={chat.send}
-        />
+              <MessageList
+                messages={chat.messages}
+                model={chat.badge?.text}
+                scrollToken={chat.scrollToken}
+              />
+
+              <Composer
+                disabled={chat.streaming}
+                focusToken={focusToken}
+                sessionLabel={chat.sessionId ? chat.title : null}
+                onSend={chat.send}
+              />
+            </>
+          ) : view === "memory" ? (
+            <Memory />
+          ) : view === "skills" ? (
+            <Skills />
+          ) : (
+            <Settings
+              status={status}
+              provider={provider}
+              onProvider={setProvider}
+              pinned={railPinned}
+              onTogglePin={togglePin}
+              onSignOut={() => signOut("")}
+            />
+          )}
+        </div>
       </div>
-    </div>
     </ApiContext.Provider>
   );
 }

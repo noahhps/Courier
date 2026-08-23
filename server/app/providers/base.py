@@ -27,6 +27,7 @@ class Chunk:
     """
 
     text: str = ""
+    thinking: str = ""
     done: bool = False
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
@@ -57,6 +58,7 @@ class ModelProvider(Protocol):
         self,
         messages: Sequence[Message],
         *,
+        think: str | None = None,
         tools: Sequence[dict] | None = None,
     ) -> AsyncIterator[Chunk]: ...
 

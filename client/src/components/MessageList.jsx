@@ -7,7 +7,7 @@ import { Message } from "./Message";
 // something; the thread must not yank them away from it.
 const STICK_PX = 120;
 
-export function MessageList({ messages, scrollToken }) {
+export function MessageList({ messages, model, scrollToken }) {
   const ref = useRef(null);
 
   // Opening a session or sending a message: go to the bottom, wherever the
@@ -31,7 +31,7 @@ export function MessageList({ messages, scrollToken }) {
   return (
     <main className="messages" ref={ref}>
       {messages.length === 0 ? (
-        <div className="empty">Ask something.</div>
+        <div className="empty">Ask anything, or start where you left off.</div>
       ) : (
         messages.map((m) => (
           <Message
@@ -39,6 +39,11 @@ export function MessageList({ messages, scrollToken }) {
             role={m.role}
             content={m.content}
             streaming={m.streaming}
+            thinking={m.thinking}
+            reasoning={m.reasoning}
+            // Only the turn that is actually from the assistant carries the
+            // provenance line; a user bubble and an error have no model.
+            model={m.role === "assistant" ? model : null}
           />
         ))
       )}

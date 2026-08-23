@@ -35,6 +35,7 @@ class OllamaProvider:
         self,
         messages: Sequence[Message],
         *,
+        think: str | None = None,
         tools: Sequence[dict] | None = None,
     ) -> AsyncIterator[Chunk]:
         payload: dict = {
@@ -43,6 +44,8 @@ class OllamaProvider:
             "stream": True,
             "options": {"num_ctx": self.context_tokens},
         }
+        if think is not None:
+            payload["think"] = think
         if tools:
             payload["tools"] = list(tools)
 
@@ -65,17 +68,19 @@ class OllamaProvider:
 
                     message = event.get("message") or {}
                     text = message.get("content", "")
+                    thinking = message.get("thinking", "")
 
                     if event.get("done"):
                         yield Chunk(
                             text=text,
+                            thinking=thinking,
                             done=True,
                             prompt_tokens=event.get("prompt_eval_count"),
                             completion_tokens=event.get("eval_count"),
                         )
                         return
-                    if text:
-                        yield Chunk(text=text)
+                    elif text or thinking:
+                        yield Chunk(text=text, thinking=thinking)
         except httpx.HTTPError as exc:
             raise ProviderError(f"ollama unreachable: {exc}", retryable=True) from exc
 

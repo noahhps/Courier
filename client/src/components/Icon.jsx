@@ -13,6 +13,10 @@ const PATHS = {
   close: "M6 6l12 12M18 6L6 18",
   send: "M5 12h14M13 6l6 6-6 6",
   check: "M5 12.5l5 5 9-11",
+  // A drawing pin, seen side on: head, shaft, point. `pinned` is the same
+  // object driven home -- shorter shaft, so the state reads at 15px.
+  pin: "M9 4h6M12 4v7M8.5 11h7l1.5 4H7l1.5-4M12 15v5",
+  pinned: "M8.5 4h7M12 4v5M7.5 9h9l2 5H5.5l2-5M12 14v6",
   // Paperclip.
   attachment:
     "M21 11.5l-8.6 8.6a5 5 0 01-7-7l8.6-8.6a3.3 3.3 0 014.7 4.7l-8.6 8.6a1.7 1.7 0 01-2.3-2.3l7.9-7.9",

@@ -13,6 +13,17 @@ export function TokenGate({ error, connecting, onSubmit }) {
           onSubmit(value.trim());
         }}
       >
+        {/* The same soft fields the screen headers use, so the gate is dressed
+            in the app rather than being a bare form in front of it. */}
+        <div
+          className="sw"
+          style={{ right: "-70px", top: "-90px", width: "220px", height: "220px", background: "var(--violet-field)" }}
+        />
+        <div
+          className="sw"
+          style={{ right: "90px", top: "-50px", width: "110px", height: "110px", background: "var(--green-field)" }}
+        />
+
         <h1>Assistant</h1>
         <p>Paste the token printed by the server on startup.</p>
         <input
