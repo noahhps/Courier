@@ -127,6 +127,9 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
       let active = sessionId;
       let content = "";
       let reasoning = "";
+      // What the model reached for this turn, in order. Kept on the answer so
+      // it survives a re-render and stays with the reply it belongs to.
+      let skills = [];
       let announced = false;
       pending.current = { key: answer.key, text: "", reasoning: "" };
 
@@ -179,6 +182,29 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
             reasoning += data.text || "";
             pending.current = { key: answer.key, text: content, reasoning };
             schedule();
+          } else if (event === "tool_call") {
+            // Appended optimistically: the result arrives as a second frame,
+            // and until it does the row shows as still running.
+            skills = [...skills, { name: data.name, arguments: data.arguments }];
+            setMessages((prev) =>
+              prev.map((m) => (m.key === answer.key ? { ...m, skills } : m)),
+            );
+            jumpToEnd();
+          } else if (event === "tool_result") {
+            // Fills in the last unanswered row for that skill rather than the
+            // last row overall: two skills can be called in one round.
+            let filled = false;
+            skills = [...skills]
+              .reverse()
+              .map((s) =>
+                !filled && s.name === data.name && s.result === undefined
+                  ? ((filled = true), { ...s, result: data.text })
+                  : s,
+              )
+              .reverse();
+            setMessages((prev) =>
+              prev.map((m) => (m.key === answer.key ? { ...m, skills } : m)),
+            );
           } else if (event === "delta") {
             content += data.text;
             pending.current = { key: answer.key, text: content, reasoning };

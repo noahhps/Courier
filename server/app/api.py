@@ -50,6 +50,10 @@ class ChatRequest(BaseModel):
         return self
 
 
+class SkillToggle(BaseModel):
+    enabled: bool
+
+
 class RenameRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
@@ -178,10 +182,20 @@ def build_router(
         # and the description is the part a caller needs in order to choose.
         return {
             "skills": [
-                {"name": name, "description": skill.description}
+                {
+                    "name": name,
+                    "description": skill.description,
+                    "enabled": skill.enabled,
+                }
                 for name, skill in registry.all()
             ]
         }
+
+    @router.patch("/skills/{name}")
+    def set_skill_enabled(name: str, body: SkillToggle) -> dict:
+        if not registry.set_enabled(name, body.enabled):
+            raise HTTPException(404, f"no skill named {name!r}")
+        return {"name": name, "enabled": body.enabled}
 
     # -- status -----------------------------------------------------------
 

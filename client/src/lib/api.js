@@ -94,6 +94,12 @@ export function createApi(token, onUnauthorized = () => {}) {
   return {
     request,
     status: () => json("/status"),
+    listSkills: () => json("/skills"),
+    setSkillEnabled: (name, enabled) =>
+      json("/skills/" + encodeURIComponent(name), {
+        method: "PATCH",
+        body: JSON.stringify({ enabled }),
+      }),
     listSessions: () => json("/sessions"),
     getSession: (id) => json("/sessions/" + id),
     deleteSession: (id) => request("/sessions/" + id, { method: "DELETE" }),

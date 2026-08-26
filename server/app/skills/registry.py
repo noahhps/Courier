@@ -26,6 +26,30 @@ class Registry:
         """
         yield from self._skills.items()
 
+    def enabled(self) -> Iterator[tuple[str, Skill]]:
+        """Only the skills currently switched on.
+
+        This is what the turn loop should offer the model. `all()` is for the
+        screen that lists them, which has to show the off ones too or there
+        would be no way to switch them back on.
+        """
+        for name, skill in self._skills.items():
+            if skill.enabled:
+                yield name, skill
+
+    def set_enabled(self, name: str, enabled: bool) -> bool:
+        """Switch one on or off. False if there is no such skill.
+
+        In memory, like the rest of the registry: a restart brings everything
+        back on. Persisting this means a table, and that is a decision about
+        user data rather than about code that ships with the server.
+        """
+        skill = self._skills.get(name)
+        if skill is None:
+            return False
+        skill.enabled = enabled
+        return True
+
     def register(self, skill: Skill) -> str:
         if skill.name in self._skills:
             return f"failed to add {skill.name} to registry"

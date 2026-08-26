@@ -51,6 +51,11 @@ export function NavRail({
   onProvider,
   pinned,
   onTogglePin,
+  resizable,
+  resizing,
+  onResizeStart,
+  onResizeKey,
+  railWidth,
   sessions,
   activeId,
   onOpenSession,
@@ -64,7 +69,10 @@ export function NavRail({
 
   // The menu counts: it is a child of the rail, so letting the rail collapse
   // underneath an open menu would leave the menu floating beside nothing.
-  const open = pinned || hovered || focused || menuOpen;
+  // So does a drag: the pointer leaves the rail almost immediately when it is
+  // widening it, and a rail that shut halfway through its own resize would be
+  // impossible to use.
+  const open = pinned || hovered || focused || menuOpen || resizing;
 
   // Focus moving between two children fires blur then focus, which would flap
   // the panel shut and open again. Asking where focus actually landed after
@@ -212,6 +220,28 @@ export function NavRail({
           </span>
         </div>
       </div>
+
+      {/* The right edge, as a drag handle. Only while the rail is open: shut,
+          its width is the icons' width and there is nothing to choose. */}
+      {open && resizable ? (
+        <div
+          className="navrail-resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Sidebar width"
+          aria-valuenow={railWidth}
+          aria-valuemin={200}
+          aria-valuemax={460}
+          tabIndex={0}
+          onPointerDown={onResizeStart}
+          onKeyDown={onResizeKey}
+          // Double-click restores the drawn width, which is otherwise only
+          // reachable by dragging back to a number nobody remembers.
+          onDoubleClick={() => onResizeKey({ key: "Reset", preventDefault() {} })}
+        >
+          <i />
+        </div>
+      ) : null}
 
       {/* Outside .navrail-inner on purpose: the inner clips its overflow so the
           panel can animate its width, which would slice a menu in half. */}

@@ -42,6 +42,7 @@ export function MessageList({ messages, model, scrollToken }) {
             thinking={m.thinking}
             reasoning={m.reasoning}
             attachments={m.attachments}
+            skills={m.skills}
             // Only the turn that is actually from the assistant carries the
             // provenance line; a user bubble and an error have no model.
             model={m.role === "assistant" ? model : null}

@@ -14,6 +14,9 @@ dependencies = [
     # extract.py reads with the standard library.
     "pillow>=10.0",
     "pypdf>=4.0",
+    # Windows ships no system timezone database, so zoneinfo cannot resolve
+    # an IANA name without this. Harmless everywhere else.
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]

@@ -24,6 +24,7 @@ from .providers import (
     ProviderError,
     ProviderRouter,
 )
+from .skills.registry import Registry
 from .store import Store, StoredAttachment, StoredMessage
 
 
@@ -49,11 +50,42 @@ IMAGE_TOKENS = 1600
 MAX_WINDOW_IMAGES = 4
 
 
+# How many times a turn may go back to the model after running skills. A local
+# model handed a shelf of them will loop on near-identical calls; this is the
+# thing that stops a bad turn from burning the whole context window.
+MAX_TOOL_ROUNDS = 4
+
+# A skill's result is trimmed here rather than in build_window, because the
+# window trims from the *head* -- so an unbounded result would push out the
+# user's actual question rather than itself.
+MAX_RESULT_CHARS = 4000
+
+
 class Orchestrator:
-    def __init__(self, settings: Settings, store: Store, router: ProviderRouter) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        store: Store,
+        router: ProviderRouter,
+        registry: Registry | None = None,
+    ) -> None:
         self.settings = settings
         self.store = store
         self.router = router
+        self.registry = registry
+
+    def _skill_schemas(self) -> list[dict] | None:
+        """What the model is told it can call, or None when it can call nothing.
+
+        `enabled()` rather than `all()`: a skill switched off is still listed on
+        the Skills page but must not be offered here. None rather than an empty
+        list, because an empty `tools` array still trips the chat template's
+        tool branch and tells the model it has a shelf with nothing on it.
+        """
+        if self.registry is None:
+            return None
+        schemas = [skill.schema() for _, skill in self.registry.enabled()]
+        return schemas or None
 
     # -- prompt assembly --------------------------------------------------
 
@@ -167,19 +199,59 @@ class Orchestrator:
         saved = False
         try:
             thinking_level = think or self.settings.ollama_think
-            async for chunk in self._stream_with_recovery(
-                provider, window, think=thinking_level
-            ):
-                # The model's working, not its answer. Sent live and never
-                # added to `parts`, so it is not persisted: reopening the
-                # conversation gives back the reply alone.
-                if chunk.thinking:
-                    yield _sse("thinking", {"text": chunk.thinking})
-                if chunk.text:
-                    parts.append(chunk.text)
-                    yield _sse("delta", {"text": chunk.text})
-                if chunk.done:
-                    final = chunk
+            tools = self._skill_schemas()
+
+            # One pass per round. A round ends when the model stops; if it
+            # stopped to ask for skills, they run and the window goes back with
+            # their answers appended. `parts` accumulates across rounds, so an
+            # answer written either side of a skill call arrives as one reply.
+            for _ in range(MAX_TOOL_ROUNDS):
+                final = None
+                round_text: list[str] = []
+
+                async for chunk in self._stream_with_recovery(
+                    provider, window, think=thinking_level, tools=tools
+                ):
+                    # The model's working, not its answer. Sent live and never
+                    # added to `parts`, so it is not persisted: reopening the
+                    # conversation gives back the reply alone.
+                    if chunk.thinking:
+                        yield _sse("thinking", {"text": chunk.thinking})
+                    if chunk.text:
+                        round_text.append(chunk.text)
+                        parts.append(chunk.text)
+                        yield _sse("delta", {"text": chunk.text})
+                    if chunk.done:
+                        final = chunk
+
+                if final is None or not final.tool_calls:
+                    break
+
+                # What the model said on its way to asking, plus the asking
+                # itself. Both have to go back or the next round replays a
+                # conversation where nothing was requested.
+                window.append(
+                    Message(
+                        role="assistant",
+                        content="".join(round_text),
+                        tool_calls=final.tool_calls,
+                    )
+                )
+
+                for call in final.tool_calls:
+                    yield _sse(
+                        "tool_call", {"name": call.name, "arguments": call.arguments}
+                    )
+                    result = await self._run_skill(call)
+                    yield _sse("tool_result", {"name": call.name, "text": result})
+                    window.append(
+                        Message(
+                            role="tool",
+                            content=result,
+                            tool_call_id=call.id,
+                            tool_name=call.name,
+                        )
+                    )
         except ProviderError as exc:
             self.router.invalidate_health()
             # Keep whatever arrived before the failure rather than dropping it.
@@ -194,6 +266,20 @@ class Orchestrator:
             if not saved:
                 self._persist(assistant.id, parts, final, provider)
 
+        # A turn that ends with nothing to show is a failure, even though every
+        # frame arrived and no exception was raised. Left alone it reaches the
+        # thread as an assistant bubble that never fills, which reads as a hang
+        # and gives no clue whose fault it was.
+        #
+        # There are two ways to get here and they have different fixes, so they
+        # get different sentences.
+        if not "".join(parts).strip():
+            yield _sse(
+                "error",
+                {"message": _silent_turn_reason(final), "provider": provider.name},
+            )
+            return
+
         yield _sse(
             "done",
             {
@@ -203,19 +289,54 @@ class Orchestrator:
         )
 
     async def _stream_with_recovery(
-        self, provider, window: list[Message], *, think: str | None = None,
+        self,
+        provider,
+        window: list[Message],
+        *,
+        think: str | None = None,
+        tools: list[dict] | None = None,
     ) -> AsyncIterator[Chunk]:
-        """Section 7: on OOM or overflow, retry once with a smaller window."""
+        """Section 7: on OOM or overflow, retry once with a smaller window.
+
+        The tool loop wraps *around* this rather than inside it, so overflow
+        recovery still applies to every round of a turn -- including the ones
+        that come back carrying a skill's output.
+        """
         try:
-            async for chunk in provider.stream(window, think=think):
+            async for chunk in provider.stream(window, think=think, tools=tools):
                 yield chunk
             return
         except ContextOverflow:
             pass  # fall through to the reduced-context retry
 
         reduced = [window[0], *window[-5:]] if len(window) > 6 else window
-        async for chunk in provider.stream(reduced, think=think):
+        async for chunk in provider.stream(reduced, think=think, tools=tools):
             yield chunk
+
+    async def _run_skill(self, call) -> str:
+        """One skill call, reduced to text the model can read.
+
+        Every failure returns rather than raises. A model that mistypes an
+        argument name should cost one round and be told what it got wrong --
+        not kill the conversation with a TypeError.
+        """
+        skill = self.registry.get(call.name) if self.registry else None
+        if skill is None:
+            known = ", ".join(name for name, _ in self.registry.enabled()) if self.registry else ""
+            return (
+                f"There is no skill called {call.name!r}."
+                + (f" Available: {known}." if known else "")
+            )
+        if not skill.enabled:
+            return f"{call.name} is switched off."
+        try:
+            result = await skill.use(**call.arguments)
+        except TypeError as exc:
+            # Almost always a hallucinated or missing argument name.
+            return f"{call.name} was called wrongly: {exc}"
+        except Exception as exc:
+            return f"{call.name} failed: {type(exc).__name__}: {exc}"
+        return str(result)[:MAX_RESULT_CHARS]
 
     def _persist(
         self, message_id: str, parts: list[str], final: Chunk | None, provider
@@ -333,6 +454,31 @@ def _attachment_cost(attached, carried: set[str]) -> int:
         else:
             total += estimate_tokens(f"[earlier image: {item.name}]")
     return total
+
+
+def _silent_turn_reason(final: Chunk | None) -> str:
+    """Why a turn produced no visible answer, in a sentence the user reads.
+
+    The message names the missing piece rather than the symptom, because the
+    symptom -- an empty bubble -- is the same in every case and tells nobody
+    anything.
+    """
+    if final is not None and final.tool_calls:
+        # The model asked for a skill and there is no loop to run one. This is
+        # the expected failure until run_turn grows one; the frame exists so it
+        # says so out loud instead of hanging.
+        asked = ", ".join(call.name for call in final.tool_calls) or "a skill"
+        return (
+            f"The model asked to use {asked}, but nothing here can run a skill "
+            "yet -- the turn loop hasn't been built. Its request was received "
+            "and discarded."
+        )
+    return (
+        "The model finished without saying anything. That usually means it "
+        "believed it should use a skill and had none offered: check that the "
+        "system preamble isn't promising abilities the request doesn't declare "
+        "in `tools`."
+    )
 
 
 def _truncate_title(text: str, limit: int = 60) -> str:

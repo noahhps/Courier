@@ -16,35 +16,31 @@
  * fonts.googleapis.com. Drop an inter-var.woff2 into public/fonts and add an
  * @font-face here to get the drawing exactly. */
 :root {
-  /* The two panels -- rail and sheet -- are both white. The page behind them
-     is not: it shows as a tinted gutter between them and a margin around the
-     sheet, which is what separates two white surfaces sitting side by side.
-     The rail carries the outline; the sheet is left clean. */
-  --shell: #d9e0ea;       /* the page: the gutter, not either panel */
-  --menu: #ffffff;        /* the rail once it opens: a panel, not the page */
-  --menu-well: #f1f4f8;   /* the conversation list, recessed into that panel */
-  --ground: #ffffff;      /* the sheet the conversation lives on */
-  --rail: #f1f4f7;        /* inset panels and code, inside the sheet */
+  /* Three grounds, deepest first. The shell is the page itself and the rail
+     sits directly on it; the chat is an inset sheet floating on top, with the
+     shell showing as a margin all the way round. Separating them by fill
+     rather than by a hairline is what makes the sidebar read as a different
+     surface instead of the same surface with a line drawn on it. */
+  --shell: #c9d0dc;       /* the page, and therefore the rail */
+  --menu: #e7ebf2;        /* the rail once it opens: a panel, not the page */
+  --menu-well: #d2dae7;   /* the conversation list, recessed into that panel */
+  --ground: #fafbfc;      /* the sheet the conversation lives on */
+  --rail: #eceff3;        /* inset panels and code, inside the sheet */
   --surface: #fff;        /* a card sitting on the ground */
   --ink: #14171d;         /* never pure black */
 
   /* The four tints. Each has a saturated form for marks and a field form for
      areas -- the field is what a header or a callout is filled with. */
-  --violet: #4a49b8;
-  --violet-soft: #7473d2;
-  --violet-field: #dedcf4;
-  --violet-wash: #d8e0f6; /* the user's own bubble, and memory nudges */
-  --blue: #2b53bd;
-  --blue-field: #d5e0f7;
-  /* The user's own bubble, and the send button. Blue rather than violet: in
-     this layout the only two things wearing a fill are the thing you typed and
-     the button that sends it, and they should read as the same voice. */
-  --blue-wash: #dfe9fb;
-  --send: #3a6fd8;
-  --green: #2f7a58;
-  --green-field: #cfe7db;
-  --ochre: #9c7208;
-  --ochre-field: #f2e4c2;
+  --violet: #5b5ac6;
+  --violet-soft: #8180d8;
+  --violet-field: #e3e1f5;
+  --violet-wash: #dee4f7; /* the user's own bubble, and memory nudges */
+  --blue: #3a63cf;
+  --blue-field: #dde5f7;
+  --green: #3d8a66;
+  --green-field: #d9ebe1;
+  --ochre: #b8890f;
+  --ochre-field: #f4ead0;
 
   /* The blue from the archived Yiqi Sheet palette, brought forward. It is the
      one saturated colour in the system and it means "you can act on this":
@@ -54,23 +50,17 @@
   --accent: #0000cc;
   --accent-hover: #000099;
 
-  /* Firmer than the drawing. On a white ground with no fills left to do the
-     work, these lines are the only thing separating one surface from the
-     next, so they have to be visible rather than implied. */
-  --line: rgba(20, 23, 29, 0.2);
-  --line-soft: rgba(20, 23, 29, 0.14);
-  --line-firm: rgba(20, 23, 29, 0.3);
-  --line-strong: rgba(20, 23, 29, 0.46);
+  --line: rgba(20, 23, 29, 0.14);
+  --line-soft: rgba(20, 23, 29, 0.1);
+  --line-firm: rgba(20, 23, 29, 0.22);
+  --line-strong: rgba(20, 23, 29, 0.34);
 
   /* The design draws these very light. At 9.5px the machine labels were the
      worst offender -- under 3:1 on the ground and effectively decorative.
      Raised until the small type is actually readable. */
   --text: var(--ink);
-  --text-dim: rgba(20, 23, 29, 0.8);
-  /* 0.62, not 0.56. Every use of this is under 18px -- machine labels at
-     9.5px, the reasoning toggle at 12.5 -- so AA wants 4.5:1, and 0.56
-     composites to 4.12 on the white sheet. */
-  --text-faint: rgba(20, 23, 29, 0.7);
+  --text-dim: rgba(20, 23, 29, 0.72);
+  --text-faint: rgba(20, 23, 29, 0.56);
 
   /* Four radii and no others: pill, bubble, surface, card. */
   --r-pill: 30px;
@@ -286,12 +276,9 @@ svg {
   align-items: stretch;
   gap: 22px;
   padding: 22px 10px 18px;
-  /* White like the sheet, and told apart from it by the tinted gutter between
-     the two rather than by its own fill. The outline is the rail's: it is the
-     panel that gets drawn around, and the sheet is left clean. */
-  background: var(--surface);
-  border-radius: 0 16px 16px 0;
-  box-shadow: 0 0 0 1px var(--line);
+  /* No border. The rail is the shell showing through, and the sheet beside it
+     supplies the edge by being a different colour. */
+  background: var(--shell);
   overflow: hidden;
   transition: width 0.22s ease, box-shadow 0.22s ease, padding 0.22s ease,
     background 0.22s ease, border-radius 0.22s ease;
@@ -304,11 +291,7 @@ svg {
   padding: 22px 14px 18px;
   background: var(--menu);
   border-radius: 0 22px 22px 0;
-  /* The outline stays under the drop shadow -- an opened rail is still an
-     outlined panel, it is just also floating. */
-  box-shadow:
-    0 0 0 1px var(--line),
-    26px 0 54px -30px rgba(20, 23, 29, 0.55);
+  box-shadow: 26px 0 54px -30px rgba(20, 23, 29, 0.55);
 }
 
 /* Pinned it is not floating over anything -- the sheet sits beside it with the
@@ -316,59 +299,8 @@ svg {
    edge, and reads as the second panel on the page rather than as a flap over
    the first. */
 .app[data-rail="pinned"] .navrail[data-open] .navrail-inner {
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: none;
 }
-
-/* The right edge of the open rail, as a drag handle.
- *
- * Sits outside .navrail-inner, which clips, and is positioned against
- * --rail-open rather than --rail-w so it tracks the panel's edge in both
- * modes -- overlaid on hover, and taking real width when pinned.
- *
- * 9px of target for a 1px line: a hairline is impossible to hit, and the
- * cursor change is the only affordance a resize edge gets. */
-.navrail-resize {
-  position: absolute;
-  top: 10px;
-  bottom: 10px;
-  left: calc(var(--rail-open) - 4px);
-  width: 9px;
-  z-index: 16;
-  cursor: col-resize;
-  display: flex;
-  justify-content: center;
-  /* No pointer events on the bar inside, so the hit area is the whole 9px
-     rather than the 3px that is painted. */
-  touch-action: none;
-}
-.navrail-resize i {
-  width: 3px;
-  border-radius: 2px;
-  background: transparent;
-  transition: background 0.14s ease;
-  pointer-events: none;
-}
-.navrail-resize:hover i,
-.navrail-resize:focus-visible i,
-.app[data-resizing] .navrail-resize i {
-  background: var(--line-strong);
-}
-.navrail-resize:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  border-radius: 3px;
-}
-
-/* Mid-drag every animated property has to stop animating, or the panel
-   arrives a few frames behind the pointer and the handle feels loose. The
-   sheet is in here too: pinned, it is resized by the same drag. */
-.app[data-resizing] .navrail-inner,
-.app[data-resizing] .screen,
-.app[data-resizing] .navrail-resize i {
-  transition: none;
-}
-/* A drag that wanders over the thread must not select it. */
-.app[data-resizing] { user-select: none; }
 
 .navrail .spacer { flex: 1; }
 
@@ -589,16 +521,8 @@ svg {
 }
 .navrail-sessions li:hover { background: rgba(20, 23, 29, 0.08); }
 /* A wash, where the active *section* above is a solid fill -- two different
-   kinds of "current" should not look like the same control.
-
-   The wash alone used to be enough, when the well behind it was a solid
-   blue-grey. Against a near-white well it is 1.1:1 and effectively invisible,
-   so the row carries a ring as well. Inset, not a border: a border would move
-   the row a pixel and make the list jitter as the selection changes. */
-.navrail-sessions li[data-active="true"] {
-  background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--line-firm);
-}
+   kinds of "current" should not look like the same control. */
+.navrail-sessions li[data-active="true"] { background: var(--surface); }
 .navrail-sessions li[data-active="true"] .navrail-session { font-weight: 400; }
 .navrail-sessions li[data-empty="true"]:hover { background: none; }
 
@@ -722,9 +646,10 @@ svg {
   background: var(--ground);
   overflow: hidden;
   /* A contact shadow, not a drop shadow: it seats the sheet on the shell
-     without pretending either of them is lit. No ring -- the outline belongs
-     to the rail, and the tinted page supplies this edge on its own. */
-  box-shadow: 0 10px 30px -22px rgba(20, 23, 29, 0.3);
+     without pretending either of them is lit. */
+  box-shadow:
+    0 0 0 1px rgba(20, 23, 29, 0.05),
+    0 10px 30px -20px rgba(20, 23, 29, 0.35);
 }
 
 /* -- top bar ---------------------------------------------------------------- */
@@ -794,12 +719,10 @@ svg {
   /* No max-width here: `.turn-user-stack` owns the 70% cap now, and a
      percentage on both meant the bubble was sized against a parent that was
      itself sizing to the bubble. */
-  background: var(--blue-wash);
-  /* Evenly rounded. The 6px tail pointed the bubble at a speaker, and nothing
-     else in this layout is speaking -- the answer below it has no bubble. */
-  border-radius: 18px;
-  padding: 12px 17px;
-  font: 400 14.5px/1.65 var(--font);
+  background: var(--violet-wash);
+  border-radius: var(--r-bubble) var(--r-bubble) 6px var(--r-bubble);
+  padding: 15px 19px;
+  font: 300 14.5px/1.7 var(--font);
   color: var(--ink);
   text-wrap: pretty;
   /* `break-word`, not `anywhere`. Both break an unbreakable string that would
@@ -812,37 +735,30 @@ svg {
   min-width: 0;
 }
 
-/* An answer and what produced it. The provenance used to be a fixed 126px
-   column down the left; it now sits as one quiet line above the answer, which
-   gives the prose the full width of the sheet and puts the metadata where the
-   eye meets it first -- before the text, not beside it. */
+/* An answer and its margin. The margin is a fixed 126px column holding what
+   was recalled and read, then a hairline, then the answer itself. */
 .turn-answer {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  align-items: stretch;
+  gap: 22px;
+  align-items: flex-start;
 }
 
 .margin {
-  width: auto;
+  width: 126px;
   flex: none;
-  text-align: left;
+  text-align: right;
   display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 8px;
+  flex-direction: column;
+  gap: 10px;
 }
 .margin p {
   margin: 0;
-  font: 400 12.5px/1.6 var(--font);
+  font: 300 12.5px/1.6 var(--font);
   color: rgba(20, 23, 29, 0.66);
 }
 .margin p[data-soft] {
   font-size: 11.5px;
-  /* Was 0.5 -- 3.41:1, the worst value on the sheet, and it sits above the
-     answer now rather than off in a margin, so it is read more often. */
-  color: rgba(20, 23, 29, 0.64);
+  color: rgba(20, 23, 29, 0.5);
 }
 .margin .mi + .mi { margin-top: 6px; }
 
@@ -865,10 +781,7 @@ svg {
 /* The answer body is the markdown renderer's own output, so it is styled by
    element rather than by class -- see lib/markdown.js for what it emits. */
 .answer .body {
-  /* 400, not 300. The answer is the one long stretch of reading in the app,
-     and a light weight that flatters a label costs legibility over paragraphs.
-     The rail keeps 300 -- it is all short labels. */
-  font: 400 15px/1.72 var(--font);
+  font: 300 14.5px/1.7 var(--font);
   color: var(--ink);
   text-wrap: pretty;
   overflow-wrap: anywhere;
@@ -915,15 +828,11 @@ svg {
 .answer .body table { border-collapse: collapse; margin: 0 0 14px; display: block; overflow-x: auto; }
 .answer .body th,
 .answer .body td {
-  /* Rows only. Vertical rules turn a table into a grid of cells; horizontal
-     ones let it stay a list you read across. */
-  border: 0;
-  border-bottom: 1px solid var(--line-soft);
-  padding: 9px 14px 9px 0;
-  font-size: 13.5px;
+  border: 1px solid var(--line);
+  padding: 7px 11px;
+  font-size: 13px;
   text-align: left;
 }
-.answer .body th { font-weight: 600; }
 .answer .body hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 
 /* The caveat line under an answer. */
@@ -977,28 +886,21 @@ svg {
 
 /* -- reasoning -------------------------------------------------------------- */
 
-/* A line, not a panel. Reasoning is an aside about the answer below it, and
-   a filled box gave it the weight of a section of its own. */
 .reasoning {
-  border-radius: 0;
-  background: none;
-  padding: 0;
+  border-radius: var(--r-surface);
+  background: var(--rail);
+  padding: 13px 16px;
 }
 .reasoning-toggle {
-  font: 400 12.5px/1.5 var(--font);
-  letter-spacing: 0;
-  text-transform: none;
+  font: 500 9.5px/1 var(--font);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--text-faint);
   padding: 0;
 }
-.reasoning-toggle:hover { color: var(--text-dim); }
 .reasoning[data-live] .reasoning-toggle { color: var(--accent); }
 .reasoning-body {
-  /* Indented behind a rule, so an open trace reads as nested under its
-     toggle rather than as more prose in the answer. */
-  border-left: 2px solid var(--line-soft);
-  padding-left: 13px;
-  margin-top: 9px;
+  margin-top: 11px;
   max-height: 190px;
   overflow-y: auto;
   white-space: pre-wrap;
@@ -1046,11 +948,8 @@ svg {
 .composer-box {
   border: 1px solid rgba(20, 23, 29, 0.14);
   background: var(--surface);
-  border-radius: 16px;
+  border-radius: 24px;
   padding: 17px 20px 14px;
-  box-shadow:
-    0 1px 2px rgba(20, 23, 29, 0.04),
-    0 8px 24px -18px rgba(20, 23, 29, 0.4);
 }
 .composer-box:focus-within { border-color: var(--line-strong); }
 
@@ -1079,8 +978,8 @@ svg {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: var(--send);
-  color: #fff;
+  background: var(--ink);
+  color: var(--ground);
   display: grid;
   place-items: center;
   flex: none;
@@ -1098,7 +997,7 @@ svg {
   color: rgba(20, 23, 29, 0.55);
 }
 .effort button[aria-pressed="true"] {
-  background: var(--blue-wash);
+  background: var(--violet-wash);
   color: var(--ink);
 }
 .effort button:disabled { opacity: 0.45; cursor: default; }
@@ -1269,46 +1168,6 @@ svg {
 .side-actions .btn { flex: 1; justify-content: center; }
 
 /* -- skills (1c) -------------------------------------------------------------- */
-
-/* The shelf, as a list. One row per skill: what it is on the left, the switch
-   on the right, hairlines between rather than a card each -- a card per row
-   turns a list of twenty into twenty things to look at instead of one. */
-.skill-list {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: var(--r-surface);
-  background: var(--surface);
-  overflow: hidden;
-}
-.skill-item {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  padding: 15px 18px;
-  border-bottom: 1px solid var(--line-soft);
-}
-.skill-item:last-child { border-bottom: 0; }
-.skill-item-text { flex: 1; min-width: 0; }
-.skill-item-text .h { font-size: 15px; }
-.skill-item .skill-body { margin: 4px 0 0; }
-/* Switched off: dimmed, but never hidden -- the row is the only way back on. */
-.skill-item[data-off] .skill-item-text { opacity: 0.55; }
-.skill-item .switch:disabled { opacity: 0.5; cursor: default; }
-
-.search { margin-bottom: 4px; }
-.search input {
-  width: 100%;
-  padding: 11px 15px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-pill);
-  background: var(--surface);
-  font: 400 13px/1.4 var(--font);
-  color: var(--ink);
-  outline: none;
-}
-.search input::placeholder { color: var(--text-faint); }
-.search input:focus { border-color: var(--line-strong); }
 
 .skill-row { display: flex; gap: 14px; }
 
@@ -1690,78 +1549,4 @@ svg {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.7);
-}
-
-/* -- skill trace ------------------------------------------------------------
- *
- * The model reaching for something, live. Sits above the answer in the same
- * column as the reasoning block and reads the same way: the working, not the
- * reply. A row without a result yet is still running, and saying so is the
- * whole point -- otherwise a slow skill is indistinguishable from a hang. */
-.skill-trace {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 14px;
-  border-radius: var(--r-surface);
-  background: var(--rail);
-  border: 1px solid var(--line-soft);
-}
-.skill-trace[data-live] { border-color: var(--blue); }
-
-.skill-trace-label { color: var(--text-faint); }
-.skill-trace[data-live] .skill-trace-label { color: var(--accent); }
-
-.skill-trace-row { display: flex; flex-direction: column; }
-
-.skill-trace-head {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-  width: 100%;
-  text-align: left;
-  padding: 5px 0;
-}
-.skill-trace-head .spacer { flex: 1; }
-.skill-trace-head:disabled { cursor: default; }
-
-.skill-trace-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--green);
-  flex: none;
-  align-self: center;
-}
-.skill-trace-row[data-running] .skill-trace-dot {
-  background: var(--blue);
-  animation: pulse 1.2s ease-in-out infinite;
-}
-
-.skill-trace-name {
-  font: 500 12px/1.3 var(--font);
-  letter-spacing: 0.02em;
-  color: var(--accent);
-  flex: none;
-}
-
-.skill-trace-args {
-  font: 300 11.5px/1.3 var(--font);
-  color: var(--text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.skill-trace-body {
-  margin: 4px 0 6px 15px;
-  padding-left: 11px;
-  border-left: 2px solid var(--line);
-  font: 300 12.5px/1.65 var(--font);
-  color: var(--text-dim);
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  max-height: 220px;
-  overflow-y: auto;
 }

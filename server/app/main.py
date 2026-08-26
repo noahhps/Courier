@@ -15,6 +15,7 @@ from .config import Settings, load_settings
 from .db import Database
 from .orchestrator import Orchestrator
 from .providers import ProviderRouter
+from .skills.clock import Clock
 from .skills.registry import Registry
 from .store import Store
 
@@ -47,10 +48,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     db = Database(settings.db_path)
     store = Store(db)
     providers = ProviderRouter(settings)
-    orchestrator = Orchestrator(settings, store, providers)
     # Built fresh each boot: skills are code that ships with the server, so
-    # there is nothing to load and nothing to persist.
+    # there is nothing to load and nothing to persist. Built *before* the
+    # orchestrator, which needs it to tell the model what it can call.
     registry = Registry()
+    registry.register(Clock())
+    orchestrator = Orchestrator(settings, store, providers, registry)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

@@ -51,6 +51,12 @@ MIGRATIONS: list[str] = [
     CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
       INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
     END;
+    
+    DROP TRIGGER messages_ai;
+    CREATE TRIGGER messages_ai AFTER INSERT ON messages
+    WHEN new.role <> 'tool' BEGIN
+    INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+    END;
 
     CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
       INSERT INTO messages_fts(messages_fts, rowid, content)

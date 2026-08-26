@@ -13,6 +13,10 @@ class Skill(ABC):
         self.name = name;
         self.description = description;
         self.parameters = parameters or {"type": "object", "properties": {}};
+        # Registered but switched off: still listed, still describable, just
+        # not offered to the model. Lives on the instance rather than in the
+        # registry so a skill handed around on its own still knows.
+        self.enabled = True
 
     @abstractmethod
     async def use(self, **kwargs) -> str:

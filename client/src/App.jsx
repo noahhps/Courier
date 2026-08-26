@@ -12,6 +12,7 @@ import { Skills } from "./components/Skills";
 import { TokenGate } from "./components/TokenGate";
 import { TopBar } from "./components/TopBar";
 import { useChat } from "./hooks/useChat";
+import { useRailWidth } from "./hooks/useRailWidth";
 import { useSessions } from "./hooks/useSessions";
 import { UnauthorizedError, createApi } from "./lib/api";
 import { ApiContext } from "./lib/api-context";
@@ -36,6 +37,7 @@ export default function App() {
   const [focusToken, setFocusToken] = useState(0);
   // Which of the rail's three destinations is on screen.
   const [view, setView] = useState("chat");
+  const rail = useRailWidth();
   const [railPinned, setRailPinned] = useState(
     () => localStorage.getItem(PIN_KEY) === "1",
   );
@@ -169,7 +171,16 @@ export default function App() {
 
   return (
     <ApiContext.Provider value={api}>
-      <div className="app" data-rail={railPinned ? "pinned" : undefined}>
+      <div
+        className="app"
+        data-rail={railPinned ? "pinned" : undefined}
+        // While the drag is live the width transition has to come off, or the
+        // panel arrives a couple of frames after the pointer and the handle
+        // feels loose.
+        data-resizing={rail.resizing ? "" : undefined}
+        // Omitted below 900px so the stylesheet's phone sizing survives.
+        style={rail.enabled ? { "--rail-open": `${rail.width}px` } : undefined}
+      >
         {/* The conversation list lives inside the rail now -- it unfolds under
             Chat when the rail opens, so there is no drawer to slide over the
             thread and no second place to look for the same list. */}
@@ -180,6 +191,11 @@ export default function App() {
           provider={provider}
           onProvider={setProvider}
           pinned={railPinned}
+          resizable={rail.enabled}
+          resizing={rail.resizing}
+          onResizeStart={rail.start}
+          onResizeKey={rail.nudge}
+          railWidth={rail.width}
           onTogglePin={togglePin}
           sessions={sessions.sessions}
           activeId={chat.sessionId}
@@ -216,7 +232,7 @@ export default function App() {
           ) : view === "memory" ? (
             <Memory />
           ) : view === "skills" ? (
-            <Skills />
+            <Skills api={api} />
           ) : (
             <Settings
               status={status}

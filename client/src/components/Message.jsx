@@ -3,6 +3,7 @@ import { memo, useMemo } from "react";
 import { renderMarkdown } from "../lib/markdown";
 import { MessageAttachments } from "./Attachments";
 import { Reasoning } from "./Reasoning";
+import { SkillTrace } from "./SkillTrace";
 
 /**
  * One turn.
@@ -27,6 +28,7 @@ export const Message = memo(function Message({
   thinking,
   reasoning,
   attachments,
+  skills,
   model,
 }) {
   // renderMarkdown escapes the source before emitting a single tag, so no
@@ -70,6 +72,8 @@ export const Message = memo(function Message({
         {reasoning ? (
           <Reasoning text={reasoning} answering={Boolean(content)} />
         ) : null}
+
+        <SkillTrace skills={skills} />
 
         {html ? (
           <div className="body" dangerouslySetInnerHTML={html} />
