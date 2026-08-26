@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
 from .attachments import AttachmentError
 from .attachments import decode as decode_attachments
-from .config import ThinkingLevel
+from .config import Settings, ThinkingLevel
 from .orchestrator import Orchestrator
 from .providers import ProviderRouter
 from .store import Store
@@ -64,6 +65,7 @@ def build_router(
     providers: ProviderRouter,
     auth,
     registry: Registry,
+    settings: Settings,
 ) -> APIRouter:
     router = APIRouter(dependencies=[Depends(auth)])
 
@@ -196,6 +198,27 @@ def build_router(
         if not registry.set_enabled(name, body.enabled):
             raise HTTPException(404, f"no skill named {name!r}")
         return {"name": name, "enabled": body.enabled}
+
+    # -- documents --------------------------------------------------------
+
+    @router.get("/documents/{name}")
+    def get_document(name: str) -> FileResponse:
+        """Serve something the assistant wrote.
+
+        The name is resolved and then checked to be inside the documents
+        directory. `Path.name` alone would be enough for the shapes FastAPI
+        lets through, but a containment check is the assertion that actually
+        expresses the rule, and it survives someone widening the route later.
+        """
+        directory = settings.documents_dir.resolve()
+        candidate = (directory / Path(name).name).resolve()
+        if candidate.parent != directory or not candidate.is_file():
+            raise HTTPException(404, "no such document")
+        return FileResponse(
+            candidate,
+            filename=candidate.name,
+            headers={"Cache-Control": "private, no-store"},
+        )
 
     # -- status -----------------------------------------------------------
 

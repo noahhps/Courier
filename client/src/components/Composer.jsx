@@ -13,7 +13,7 @@ const EFFORTS = ["low", "medium", "high"];
  * The design has no sliders in it, and three named states read faster than a
  * track with an output label under it.
  */
-export function Composer({ disabled, focusToken, sessionLabel, onSend }) {
+export function Composer({ disabled, focusToken, draft, sessionLabel, onSend }) {
   const [value, setValue] = useState("");
   const [effort, setEffort] = useState("medium");
   // Picked but not sent. Each carries its own key because two files can have
@@ -54,6 +54,21 @@ export function Composer({ disabled, focusToken, sessionLabel, onSend }) {
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
+
+  // A starter was picked. `draft` is a fresh object every time, so choosing the
+  // same one twice still fires -- comparing the string would swallow the second
+  // press and look broken.
+  //
+  // The caret goes to the end rather than selecting the text: these prompts are
+  // written to be typed into, and a selection would mean the next keystroke
+  // wiped what was just inserted.
+  useEffect(() => {
+    if (!draft) return;
+    setValue(draft.text);
+    const node = input.current;
+    node.focus();
+    node.selectionStart = node.selectionEnd = draft.text.length;
+  }, [draft]);
 
   // Starting a new conversation puts the caret in the box. Only then -- an
   // unprompted focus on a phone throws the keyboard up over the thread.

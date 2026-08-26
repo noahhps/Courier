@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 
 import { Message } from "./Message";
+import { StartersHead } from "./Starters";
 
 // Anything within this much of the bottom counts as "reading the end", so a
 // new token follows the reader down. Further up and they are looking at
@@ -31,7 +32,7 @@ export function MessageList({ messages, model, scrollToken }) {
   return (
     <main className="messages" ref={ref}>
       {messages.length === 0 ? (
-        <div className="empty">Ask anything, or start where you left off.</div>
+        <StartersHead />
       ) : (
         messages.map((m) => (
           <Message

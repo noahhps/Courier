@@ -7,7 +7,13 @@
  * Everything on this screen is real. It is the one screen added in this
  * redesign that needs no `unbacked` banner.
  */
+import { useState } from "react";
+
+import { autoSaveEnabled, setAutoSave } from "./SkillTrace";
+
 export function Settings({ status, provider, onProvider, pinned, onTogglePin, onSignOut }) {
+  const [autoSave, setAutoSaveState] = useState(autoSaveEnabled);
+
   const rows = [
     {
       id: "local",
@@ -105,6 +111,30 @@ export function Settings({ status, provider, onProvider, pinned, onTogglePin, on
 
           <div className="sur" style={{ padding: "18px" }}>
             <div className="toggles">
+              <div className="toggle-row">
+                <span>
+                  Save documents automatically
+                  <br />
+                  <span className="caveat">
+                    Straight to this browser's download folder when the
+                    assistant writes one.
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className="switch"
+                  role="switch"
+                  aria-checked={autoSave}
+                  aria-pressed={autoSave}
+                  aria-label="Save documents automatically"
+                  onClick={() => {
+                    setAutoSave(!autoSave);
+                    setAutoSaveState(!autoSave);
+                  }}
+                >
+                  <i />
+                </button>
+              </div>
               <div className="toggle-row">
                 <span>Keep the sidebar open</span>
                 <button

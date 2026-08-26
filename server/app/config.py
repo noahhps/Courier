@@ -68,6 +68,25 @@ class Settings:
         default_factory=lambda: _env_thinking_level("OLLAMA_THINK", "medium")
     )
 
+    # Documents the assistant writes. Beside the database rather than inside
+    # it: these are artifacts a conversation produced, not data the user gave
+    # it, and they are regenerable.
+    documents_dir: Path = field(
+        default_factory=lambda: Path(
+            _env("DOCUMENTS_DIR", str(REPO_ROOT / "data" / "documents"))
+        )
+    )
+
+    # --- web search ------------------------------------------------------
+    # The one thing here that leaves the machine. Empty by default, and the
+    # skill is not registered at all without it -- a capability the model is
+    # told about but cannot use is worse than one it never hears of.
+    #
+    # A Brave Search key (free tier, no card) unless SEARCH_ENDPOINT points
+    # somewhere else that answers in the same shape.
+    search_api_key: str = field(default_factory=lambda: _env("SEARCH_API_KEY", ""))
+    search_endpoint: str = field(default_factory=lambda: _env("SEARCH_ENDPOINT", ""))
+
     # Rough working-context budget in tokens. The window builder trims to fit;
     # real compaction (summarise the middle, keep head and tail) is phase 5.
     context_tokens: int = field(default_factory=lambda: _env_int("CONTEXT_TOKENS", 32768))

@@ -16,7 +16,9 @@ from .db import Database
 from .orchestrator import Orchestrator
 from .providers import ProviderRouter
 from .skills.clock import Clock
+from .skills.document import DocumentWriter
 from .skills.registry import Registry
+from .skills.websearch import WebSearch
 from .store import Store
 
 
@@ -53,6 +55,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # orchestrator, which needs it to tell the model what it can call.
     registry = Registry()
     registry.register(Clock())
+    registry.register(DocumentWriter(settings.documents_dir))
+    # Registered only when configured. An unconfigured search that announced
+    # itself and then refused would be the same failure as a system prompt
+    # promising a tool the request never declares: the model spends the turn
+    # reaching for something that was never there.
+    if settings.search_api_key:
+        registry.register(
+            WebSearch(settings.search_api_key, endpoint=settings.search_endpoint)
+        )
+    else:
+        print("[skills] SEARCH_API_KEY unset -- web_search not offered")
     orchestrator = Orchestrator(settings, store, providers, registry)
 
     @asynccontextmanager
@@ -67,7 +80,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     auth = make_auth_dependency(settings)
     app.include_router(
-        build_router(store, orchestrator, providers, auth, registry), prefix="/api"
+        build_router(store, orchestrator, providers, auth, registry, settings),
+        prefix="/api",
     )
 
     @app.get("/healthz")

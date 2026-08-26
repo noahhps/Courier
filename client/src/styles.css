@@ -78,6 +78,14 @@
   --r-surface: 20px;
   --r-card: 26px;
 
+  /* The reading column. The sheet is as wide as the window allows, but the
+     conversation inside it is not: measured across 1184px of sheet, a turn ran
+     the full width and the eye lost its place returning to the left margin.
+     Roughly two thirds, which is also about 90 characters of the body face.
+     The turns, the composer and the openers all share it, so the left edge of
+     everything you read lines up. */
+  --read-w: 780px;
+
   --composer-h: 0px;
   --rail-w: 76px;
   /* Wide enough for a conversation title to be recognisable before it
@@ -782,10 +790,112 @@ svg {
   gap: 26px;
 }
 
+/* Every direct child of the thread -- a turn, or the greeting on an empty one
+   -- is capped and centred rather than the scroll container itself, so the
+   scrollbar stays at the edge of the sheet where it belongs. */
+.messages > * {
+  width: 100%;
+  max-width: var(--read-w);
+  align-self: center;
+}
+
 .empty {
   margin: auto;
   color: var(--text-faint);
   font: 300 14.5px/1.7 var(--font);
+}
+
+/* -- the empty conversation -------------------------------------------------
+ *
+ * The composer sits in the middle of the sheet rather than at the foot of it,
+ * with the openers above. Done with auto margins on the two flex children
+ * rather than by moving the composer in the DOM: it keeps its own state, its
+ * ResizeObserver and the caret, none of which survive a remount.
+ *
+ * The thread stops growing so the pair can be centred as a group, and its
+ * reserved bottom padding goes -- there is nothing to keep clear of. */
+/* Equal halves either side of the composer, so the box itself lands on the
+   centre line: the greeting sits at the foot of the space above, the openers
+   at the head of the space below. Both take `flex: 1 1 0` -- a shared basis of
+   zero, so they divide the leftover evenly no matter how tall their contents
+   are. */
+.screen[data-empty] .messages {
+  flex: 1 1 0;
+  padding-bottom: 0;
+  overflow-y: auto;
+  justify-content: flex-end;
+}
+.screen[data-empty] .starters {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.starters {
+  width: 100%;
+  padding: 0 34px;
+  display: flex;
+  flex-direction: column;
+}
+.starters-grid,
+.starters-head {
+  width: 100%;
+  max-width: var(--read-w);
+  margin: 0 auto;
+}
+
+.starters-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+.starters-head .h { font-size: 27px; }
+.starters-head .p {
+  color: var(--text-dim);
+  font-size: 13.5px;
+  margin: 0;
+  max-width: 52ch;
+}
+
+.starters-grid {
+  display: grid;
+  /* Two up when there is room, one when there is not. `auto-fit` rather than a
+     media query: the sheet narrows when the rail is pinned or dragged wider,
+     and the breakpoint that matters is this column's width, not the window's. */
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.starter {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+.starter:hover { border-color: var(--line-strong); background: var(--rail); }
+.starter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.starter-title {
+  font: 500 13px/1.3 var(--font);
+  color: var(--ink);
+}
+.starter-body {
+  font: 400 12.5px/1.55 var(--font);
+  color: var(--text-faint);
+  /* Two lines, then an ellipsis. The whole prompt goes into the box on the
+     press; the card only has to say enough to choose by. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .turn-user { display: flex; justify-content: flex-end; }
@@ -1044,6 +1154,8 @@ svg {
 }
 
 .composer-box {
+  max-width: var(--read-w);
+  margin: 0 auto;
   border: 1px solid rgba(20, 23, 29, 0.14);
   background: var(--surface);
   border-radius: 16px;
@@ -1764,4 +1876,20 @@ svg {
   overflow-wrap: break-word;
   max-height: 220px;
   overflow-y: auto;
+}
+
+/* A file a skill produced. Offered by the trace rather than by the model's
+   prose, so it is there whether or not the answer mentions it. */
+.skill-trace-save {
+  align-self: flex-start;
+  margin: 2px 0 6px 15px;
+  padding: 7px 13px;
+  font-size: 11.5px;
+  /* A model picks the filename, so it can be long. Capped and clipped rather
+     than allowed to stretch the trace wider than the answer beside it. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  white-space: nowrap;
 }

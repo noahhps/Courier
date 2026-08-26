@@ -17,7 +17,13 @@ const KEEP_FOR_SHEET = 320;
 const DEFAULT = 252;
 
 function clamp(px) {
-  const ceiling = Math.min(MAX, Math.max(MIN, window.innerWidth - KEEP_FOR_SHEET));
+  // A viewport of 0 means the window has not been laid out yet -- a background
+  // tab, a restored session, a mount before first paint. Clamping against it
+  // would drag a saved 400px down to the 200px floor, and the next drag would
+  // write that back, so the preference would quietly disappear. Treat an
+  // unmeasurable window as unbounded and let MIN/MAX do the work alone.
+  const vw = window.innerWidth || Infinity;
+  const ceiling = Math.min(MAX, Math.max(MIN, vw - KEEP_FOR_SHEET));
   return Math.round(Math.min(ceiling, Math.max(MIN, px)));
 }
 
@@ -108,8 +114,16 @@ export function useRailWidth() {
 
   // A window narrow enough to break the clamp has to pull the rail in with it,
   // or the conversation is squeezed to nothing on a resize.
+  //
+  // `wide` is re-read here as well as from the media query's own change event.
+  // Belt and braces: the change event does not fire in every environment --
+  // it did not when the viewport was resized under emulation -- and a stale
+  // `wide` leaves the handle missing on a window that should have one.
   useEffect(() => {
-    const onResize = () => setWidth((w) => clamp(w));
+    const onResize = () => {
+      setWidth((w) => clamp(w));
+      setWide(window.matchMedia("(min-width: 901px)").matches);
+    };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);

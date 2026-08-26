@@ -9,6 +9,7 @@ import { MessageList } from "./components/MessageList";
 import { NavRail } from "./components/NavRail";
 import { Settings } from "./components/Settings";
 import { Skills } from "./components/Skills";
+import { Starters } from "./components/Starters";
 import { TokenGate } from "./components/TokenGate";
 import { TopBar } from "./components/TopBar";
 import { useChat } from "./hooks/useChat";
@@ -38,6 +39,9 @@ export default function App() {
   // Which of the rail's three destinations is on screen.
   const [view, setView] = useState("chat");
   const rail = useRailWidth();
+  // The prompt a starter put in the composer. An object, not a string, so
+  // picking the same starter twice is two distinct values.
+  const [draft, setDraft] = useState(null);
   const [railPinned, setRailPinned] = useState(
     () => localStorage.getItem(PIN_KEY) === "1",
   );
@@ -207,7 +211,16 @@ export default function App() {
         {/* One column beside the rail. The drawer overlays it rather than
             sitting in the flow, so switching destinations never reflows the
             thread underneath. */}
-        <div className="screen">
+        {/* An empty conversation centres its composer instead of pinning it to
+            the bottom of an empty sheet. Flagged here rather than inside the
+            thread because the composer is the thread's sibling, not its
+            child. */}
+        <div
+          className="screen"
+          data-empty={
+            view === "chat" && chat.messages.length === 0 ? "" : undefined
+          }
+        >
           {view === "chat" ? (
             <>
               <TopBar
@@ -225,9 +238,14 @@ export default function App() {
               <Composer
                 disabled={chat.streaming}
                 focusToken={focusToken}
+                draft={draft}
                 sessionLabel={chat.sessionId ? chat.title : null}
                 onSend={chat.send}
               />
+
+              {chat.messages.length === 0 ? (
+                <Starters onPick={(text) => setDraft({ text })} />
+              ) : null}
             </>
           ) : view === "memory" ? (
             <Memory />
