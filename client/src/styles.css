@@ -42,10 +42,13 @@
   --ochre: #b8890f;
   --ochre-field: #f4ead0;
 
-  /* Link and "act on this" text. Deliberately distinct from --violet, which is
-     a mark colour: this one has to hold up as body-size text. */
-  --accent: #4a41b0;
-  --accent-hover: #322a94;
+  /* The blue from the archived Yiqi Sheet palette, brought forward. It is the
+     one saturated colour in the system and it means "you can act on this":
+     links, destructive text, the current section. Violet stays ambient -- it
+     fills the pastel headers and washes and never asks to be clicked -- so the
+     two never compete for the same job despite sitting close in hue. */
+  --accent: #0000cc;
+  --accent-hover: #000099;
 
   --line: rgba(20, 23, 29, 0.14);
   --line-soft: rgba(20, 23, 29, 0.1);
@@ -330,8 +333,8 @@ svg {
 
 .navrail-mark { background: var(--violet-soft); }
 .navrail-mark[aria-current="page"] {
-  background: var(--violet);
-  box-shadow: 0 0 0 3px var(--menu), 0 0 0 5px var(--violet);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--menu), 0 0 0 5px var(--accent);
 }
 
 .navrail-wordmark,
@@ -418,7 +421,7 @@ svg {
    rail is shut most of the time, so the shut state is the one that has to
    answer "which page is this?" without being opened first. */
 .navrail-dest button[aria-current="page"] {
-  background: var(--violet);
+  background: var(--accent);
   color: #fff;
 }
 
@@ -713,15 +716,23 @@ svg {
 .turn-user { display: flex; justify-content: flex-end; }
 
 .bubble {
-  max-width: 70%;
+  /* No max-width here: `.turn-user-stack` owns the 70% cap now, and a
+     percentage on both meant the bubble was sized against a parent that was
+     itself sizing to the bubble. */
   background: var(--violet-wash);
   border-radius: var(--r-bubble) var(--r-bubble) 6px var(--r-bubble);
   padding: 15px 19px;
   font: 300 14.5px/1.7 var(--font);
   color: var(--ink);
   text-wrap: pretty;
-  overflow-wrap: anywhere;
+  /* `break-word`, not `anywhere`. Both break an unbreakable string that would
+     otherwise overflow, but `anywhere` also drops the box's intrinsic
+     min-content width to one character -- and this bubble sits in a
+     shrink-to-fit column, so that made every message collapse into a
+     one-word-per-line sliver. */
+  overflow-wrap: break-word;
   white-space: pre-wrap;
+  min-width: 0;
 }
 
 /* An answer and its margin. The margin is a fixed 126px column holding what
@@ -1376,4 +1387,166 @@ svg {
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
+}
+
+
+/* -- attachments -----------------------------------------------------------
+ *
+ * Three shapes, because there are only three things a file can be here: a
+ * picture you can look at, a document that became text, and something still
+ * waiting to be sent. See server/app/attachments.py for the classification
+ * these mirror. */
+
+/* A user turn is now a stack: what was attached, then what was typed. Both
+   right-aligned, so the column reads as one utterance. */
+.turn-user-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 70%;
+  min-width: 0;
+}
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.attachment-image {
+  display: block;
+  padding: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  max-width: 220px;
+  line-height: 0;
+}
+.attachment-image img { display: block; max-width: 100%; height: auto; }
+.attachment-image:hover { border-color: var(--line-strong); }
+/* Held open while the bytes are fetched, so the thread does not jump when the
+   picture lands. */
+.attachment-image.placeholder {
+  width: 140px;
+  height: 96px;
+  background: var(--rail);
+}
+
+.file-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+  max-width: 260px;
+  padding: 9px 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-firm);
+  background: var(--surface);
+}
+.file-chip-name {
+  font: 300 12.5px/1.3 var(--font);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-chip-meta {
+  font: 500 9.5px/1 var(--font);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  flex: none;
+}
+
+/* Picked, not yet sent. Inside the composer box and above the text, so the
+   box grows and the message list's --composer-h padding follows it. */
+.staged {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0 0 12px;
+  padding: 0;
+}
+.staged-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: 100%;
+  padding: 6px 6px 6px 10px;
+  border-radius: var(--r-pill);
+  background: var(--rail);
+  border: 1px solid var(--line);
+}
+.staged-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  object-fit: cover;
+  flex: none;
+  margin-left: -4px;
+}
+.staged-name {
+  font: 300 12px/1.3 var(--font);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.staged-size {
+  font: 500 9.5px/1 var(--font);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  flex: none;
+}
+.staged-remove {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-faint);
+  flex: none;
+}
+.staged-remove:hover { background: rgba(20, 23, 29, 0.1); color: var(--accent); }
+
+/* A file is being dragged over the window. Anywhere is a valid drop, but the
+   composer is what lights up, because that is where it lands. */
+.composer[data-dropping] .composer-box {
+  border-color: var(--accent);
+  background: var(--violet-wash);
+}
+
+/* The paperclip is a plus: it adds something, and the row it sits in is chips
+   rather than icons, so it needs the same pill as its neighbours. */
+.chip-icon { padding: 6px 9px; }
+.chip-icon svg { width: 14px; height: 14px; }
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  gap: 14px;
+  padding: 40px;
+  background: rgba(20, 23, 29, 0.82);
+  cursor: zoom-out;
+}
+.lightbox img {
+  max-width: 100%;
+  max-height: 84vh;
+  border-radius: 14px;
+  object-fit: contain;
+}
+.lightbox-name {
+  font: 500 9.5px/1 var(--font);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
 }

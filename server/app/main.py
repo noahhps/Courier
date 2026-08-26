@@ -15,6 +15,7 @@ from .config import Settings, load_settings
 from .db import Database
 from .orchestrator import Orchestrator
 from .providers import ProviderRouter
+from .skills.registry import Registry
 from .store import Store
 
 
@@ -47,6 +48,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     store = Store(db)
     providers = ProviderRouter(settings)
     orchestrator = Orchestrator(settings, store, providers)
+    # Built fresh each boot: skills are code that ships with the server, so
+    # there is nothing to load and nothing to persist.
+    registry = Registry()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -59,7 +63,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.db = db
 
     auth = make_auth_dependency(settings)
-    app.include_router(build_router(store, orchestrator, providers, auth), prefix="/api")
+    app.include_router(
+        build_router(store, orchestrator, providers, auth, registry), prefix="/api"
+    )
 
     @app.get("/healthz")
     def healthz() -> JSONResponse:

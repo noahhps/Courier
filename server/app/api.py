@@ -5,13 +5,16 @@ from __future__ import annotations
 import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Field, model_validator
 
+from .attachments import AttachmentError
+from .attachments import decode as decode_attachments
 from .config import ThinkingLevel
 from .orchestrator import Orchestrator
 from .providers import ProviderRouter
 from .store import Store
+from .skills.registry import Registry
 
 # Proxies love to buffer text/event-stream into uselessness.
 SSE_HEADERS = {
@@ -21,9 +24,18 @@ SSE_HEADERS = {
 }
 
 
+class AttachmentIn(BaseModel):
+    name: str = Field(min_length=1, max_length=300)
+    mime: str = Field(default="", max_length=200)
+    data: str  # base64, without the data: URL prefix
+
+
 class ChatRequest(BaseModel):
-    message: str = Field(min_length=1, max_length=200_000)
+    # Empty is allowed only alongside a file: dropping in a screenshot with no
+    # sentence is a real way to ask a question, but an empty POST is not.
+    message: str = Field(default="", max_length=200_000)
     session_id: str | None = None
+    attachments: list[AttachmentIn] = Field(default_factory=list)
     # "local" | "cloud" | None (auto). Never switch silently -- the client
     # asks for a specific provider or accepts whatever the router picks.
     provider: str | None = None
@@ -31,13 +43,23 @@ class ChatRequest(BaseModel):
     # None leaves the server's OLLAMA_THINK default in charge.
     think: ThinkingLevel | None = None
 
+    @model_validator(mode="after")
+    def _not_empty(self) -> "ChatRequest":
+        if not self.message.strip() and not self.attachments:
+            raise ValueError("a message needs text, a file, or both")
+        return self
+
 
 class RenameRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
 def build_router(
-    store: Store, orchestrator: Orchestrator, providers: ProviderRouter, auth
+    store: Store,
+    orchestrator: Orchestrator,
+    providers: ProviderRouter,
+    auth,
+    registry: Registry,
 ) -> APIRouter:
     router = APIRouter(dependencies=[Depends(auth)])
 
@@ -56,9 +78,18 @@ def build_router(
         session = store.get_session(session_id)
         if not session:
             raise HTTPException(404, "no such session")
+        # Names and sizes only. The bytes are fetched per file, by id, so
+        # opening a conversation full of screenshots stays one small response.
+        attached = store.attachments_for_session(session_id)
         return {
             "session": session,
-            "messages": [m.to_dict() for m in store.list_messages(session_id)],
+            "messages": [
+                {
+                    **m.to_dict(),
+                    "attachments": [a.to_dict() for a in attached.get(m.id, ())],
+                }
+                for m in store.list_messages(session_id)
+            ],
         }
 
     @router.patch("/sessions/{session_id}")
@@ -77,6 +108,14 @@ def build_router(
 
     @router.post("/chat")
     async def chat(body: ChatRequest, request: Request) -> StreamingResponse:
+        # Decoded before the session is touched: a refused file should leave no
+        # trace, and the composer needs the reason back as a plain 400 rather
+        # than as an error frame inside a stream it has already started.
+        try:
+            attached = decode_attachments(body.attachments)
+        except AttachmentError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
         session_id = body.session_id
         if session_id:
             if not store.get_session(session_id):
@@ -87,7 +126,11 @@ def build_router(
         async def frames():
             yield f'event: session\ndata: {{"session_id": "{session_id}"}}\n\n'
             async for frame in orchestrator.run_turn(
-                session_id, body.message, prefer=body.provider, think=body.think
+                session_id,
+                body.message,
+                attached=attached,
+                prefer=body.provider,
+                think=body.think,
             ):
                 if await request.is_disconnected():
                     break
@@ -104,6 +147,41 @@ def build_router(
             await orchestrator.ensure_title(session_id)
         except Exception as exc:  # a missing title must never break a turn
             print(f"[title] {session_id}: {exc}")
+
+    # -- attachments ------------------------------------------------------
+
+    @router.get("/attachments/{attachment_id}")
+    def get_attachment(attachment_id: str) -> Response:
+        attachment = store.get_attachment(attachment_id)
+        if not attachment:
+            raise HTTPException(404, "no such attachment")
+        return Response(
+            content=attachment.data,
+            media_type=attachment.mime or "application/octet-stream",
+            headers={
+                # Immutable: an attachment's bytes never change, and its id is
+                # never reused. `private` because this router is authenticated
+                # and the bytes are the user's.
+                "Cache-Control": "private, max-age=31536000, immutable",
+                # Belt and braces against a crafted upload being served back as
+                # something the browser would run.
+                "X-Content-Type-Options": "nosniff",
+                "Content-Disposition": "inline",
+            },
+        )
+
+    # -- skills -----------------------------------------------------------
+
+    @router.get("/skills")
+    def list_skills() -> dict:
+        # Name and description only. `use` is code, not something to serialise,
+        # and the description is the part a caller needs in order to choose.
+        return {
+            "skills": [
+                {"name": name, "description": skill.description}
+                for name, skill in registry.all()
+            ]
+        }
 
     # -- status -----------------------------------------------------------
 

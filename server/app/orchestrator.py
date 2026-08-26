@@ -14,14 +14,39 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 
+from . import attachments as files
 from .config import Settings, ThinkingLevel
-from .providers import Chunk, ContextOverflow, Message, ProviderError, ProviderRouter
-from .store import Store, StoredMessage
+from .providers import (
+    Chunk,
+    ContextOverflow,
+    Image,
+    Message,
+    ProviderError,
+    ProviderRouter,
+)
+from .store import Store, StoredAttachment, StoredMessage
 
 
 def estimate_tokens(text: str) -> int:
     """Cheap proxy. Real counts come back from the provider and overwrite this."""
     return max(1, len(text) // 4)
+
+
+# What one image costs the window. Real figures depend on the model and the
+# resolution -- a few hundred tokens for a thumbnail, a couple of thousand for
+# a screenshot. This sits at the high end deliberately: overcharging trims a
+# turn early, undercharging overflows the context, and only one of those is
+# recoverable.
+IMAGE_TOKENS = 1600
+
+# How many images travel with a request, newest first.
+#
+# Resending every picture in a long conversation is not just expensive: asked
+# about the photo they just attached, a small vision model handed six images
+# will answer about one of the others. Older pictures stay in the transcript as
+# a named placeholder, so the model knows they existed and can be asked to look
+# again by sending one afresh.
+MAX_WINDOW_IMAGES = 4
 
 
 class Orchestrator:
@@ -42,21 +67,39 @@ class Orchestrator:
         return self.settings.system_preamble
 
     def build_window(
-        self, history: list[StoredMessage], *, budget: int | None = None
+        self,
+        history: list[StoredMessage],
+        attached: dict[str, list[StoredAttachment]] | None = None,
+        *,
+        budget: int | None = None,
     ) -> list[Message]:
         """Most recent turns that fit the budget, oldest-first.
 
         Trimming from the head is a placeholder for real compaction
         (summarise the middle, keep head and tail) -- that lands in phase 5
         with the rest of the memory work.
+
+        Attached files are charged against the same budget as the words around
+        them, so a conversation full of screenshots trims to fewer turns rather
+        than quietly overflowing the context.
         """
+        attached = attached or {}
         budget = budget or (self.settings.context_tokens - self.settings.reply_tokens)
         budget -= estimate_tokens(self.build_system_prompt())
+
+        # Which images ride along is decided first, newest backwards, so the
+        # cost of a turn reflects what will actually be sent with it.
+        carried: set[str] = set()
+        for message in reversed(history):
+            for item in reversed(attached.get(message.id, ())):
+                if item.kind == "image" and len(carried) < MAX_WINDOW_IMAGES:
+                    carried.add(item.id)
 
         selected: list[StoredMessage] = []
         used = 0
         for message in reversed(history):
             cost = message.tokens or estimate_tokens(message.content)
+            cost += _attachment_cost(attached.get(message.id, ()), carried)
             if used + cost > budget and selected:
                 break
             selected.append(message)
@@ -64,7 +107,7 @@ class Orchestrator:
         selected.reverse()
 
         window = [Message(role="system", content=self.build_system_prompt())]
-        window.extend(Message(role=m.role, content=m.content) for m in selected)
+        window.extend(_to_message(m, attached.get(m.id, ()), carried) for m in selected)
         return window
 
     # -- the turn ---------------------------------------------------------
@@ -74,6 +117,7 @@ class Orchestrator:
         session_id: str,
         user_text: str,
         *,
+        attached: list[files.IncomingFile] | None = None,
         think: ThinkingLevel | None = None,
         prefer: str | None = None,
     ) -> AsyncIterator[str]:
@@ -82,11 +126,22 @@ class Orchestrator:
         Frames: `meta` (ids, provider, model), `delta` (token), `done`, `error`.
         """
         user_message = self.store.add_message(session_id, "user", user_text)
+        for incoming in attached or ():
+            self.store.add_attachment(
+                user_message.id,
+                kind=incoming.kind,
+                name=incoming.name,
+                mime=incoming.mime,
+                data=incoming.data,
+                text=incoming.text,
+            )
 
         route = await self.router.resolve(prefer)
         provider = route.provider
         history = self.store.list_messages(session_id)
-        window = self.build_window(history)
+        # Bytes, not just names: this is the one call that needs them.
+        stored_files = self.store.attachments_for_session(session_id, with_data=True)
+        window = self.build_window(history, stored_files)
 
         assistant = self.store.add_message(
             session_id,
@@ -188,7 +243,12 @@ class Orchestrator:
         if not first_user:
             return None
 
+        # A turn can be nothing but a dropped image. Name it after the file
+        # rather than leaving the conversation blank in the sidebar.
         seed = first_user.content.strip()
+        if not seed:
+            named = self.store.attachments_for_session(session_id).get(first_user.id, ())
+            seed = ", ".join(a.name for a in named)
         if not seed:
             return None
 
@@ -218,6 +278,61 @@ class Orchestrator:
 
         self.store.rename_session(session_id, title)
         return title
+
+
+def _to_message(stored: StoredMessage, attached, carried: set[str]) -> Message:
+    """One stored turn as the providers see it.
+
+    Text files are pasted in ahead of what the user typed, so their question
+    lands last and reads as being about the files above it. Images travel
+    beside the text rather than in it -- see providers/base.py -- except for
+    the older ones, which are left as a line of text saying they were here.
+    """
+    text: list[str] = []
+    images: list[Image] = []
+
+    for item in attached:
+        if item.kind != "image":
+            text.append(files.as_prompt_text(item.name, _readable(item)))
+        elif item.id in carried:
+            # Files stored before uploads were normalised can still be in a
+            # format the runner refuses, which would fail this turn and every
+            # later one in the conversation. Converting on the way out costs a
+            # few milliseconds and leaves the stored original untouched.
+            name, mime, data = item.name, item.mime, item.data
+            if mime not in files.STORABLE_MIMES:
+                name, mime, data = files.normalize_image(name, mime, data)
+            images.append(Image(name=name, mime=mime, data=data))
+        else:
+            text.append(f"[earlier image: {item.name}]")
+
+    if stored.content:
+        text.append(stored.content)
+
+    return Message(role=stored.role, content="\n\n".join(text), images=tuple(images))
+
+
+def _readable(item) -> str:
+    """The words in an attachment.
+
+    A text file is its own bytes; a document was read at upload and the result
+    is in the column beside them.
+    """
+    if item.kind == "document":
+        return item.text or ""
+    return (item.data or b"").decode("utf-8", "replace")
+
+
+def _attachment_cost(attached, carried: set[str]) -> int:
+    total = 0
+    for item in attached:
+        if item.kind != "image":
+            total += estimate_tokens(files.as_prompt_text(item.name, _readable(item)))
+        elif item.id in carried:
+            total += IMAGE_TOKENS
+        else:
+            total += estimate_tokens(f"[earlier image: {item.name}]")
+    return total
 
 
 def _truncate_title(text: str, limit: int = 60) -> str:

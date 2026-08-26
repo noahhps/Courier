@@ -1,6 +1,7 @@
 import { memo, useMemo } from "react";
 
 import { renderMarkdown } from "../lib/markdown";
+import { MessageAttachments } from "./Attachments";
 import { Reasoning } from "./Reasoning";
 
 /**
@@ -25,6 +26,7 @@ export const Message = memo(function Message({
   streaming,
   thinking,
   reasoning,
+  attachments,
   model,
 }) {
   // renderMarkdown escapes the source before emitting a single tag, so no
@@ -38,7 +40,12 @@ export const Message = memo(function Message({
   if (role === "user") {
     return (
       <div className="turn-user">
-        <div className="bubble">{content}</div>
+        <div className="turn-user-stack">
+          <MessageAttachments attachments={attachments} />
+          {/* A turn can be nothing but a dropped file, in which case there is
+              no bubble to draw -- only what was attached. */}
+          {content ? <div className="bubble">{content}</div> : null}
+        </div>
       </div>
     );
   }

@@ -101,15 +101,21 @@ export function createApi(token, onUnauthorized = () => {}) {
     // `provider` is "local", "cloud", or null for whatever the router picks.
     // Never switch silently -- the server records which one answered and the
     // reply's meta frame says so.
-    chat: (message, sessionId, thinkingLevel = null, provider = null) =>
+    chat: (message, sessionId, attachments = [], thinkingLevel = null, provider = null) =>
       request("/chat", {
         method: "POST",
         body: JSON.stringify({
           message,
           session_id: sessionId,
+          // Only the three fields the server's AttachmentIn declares -- the
+          // reader also hands back `size`, which would fail validation.
+          attachments: attachments.map(({ name, mime, data }) => ({ name, mime, data })),
           think: thinkingLevel,
           provider,
         }),
       }),
+    // A blob, not a URL: the endpoint is authenticated, so the bytes have to
+    // come through fetch with the bearer header and be wrapped locally.
+    attachment: async (id) => (await request("/attachments/" + id)).blob(),
   };
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError, UnauthorizedError, readEvents } from "../lib/api";
+import { readFiles } from "../lib/files";
 
 // Local-only identity for list keys. Server message ids exist but arrive after
 // a bubble is already on screen, so the UI needs its own handle from the start.
@@ -93,8 +94,10 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
       setTitle(data.session.title || "Untitled");
       setMessages(
         data.messages
-          .filter((m) => m.role !== "system" && m.content)
-          .map((m) => message(m.role, m.content)),
+          // A turn can be nothing but a dropped image, so a message with no
+          // text but with files still belongs on screen.
+          .filter((m) => m.role !== "system" && (m.content || m.attachments?.length))
+          .map((m) => message(m.role, m.content, { attachments: m.attachments })),
       );
       jumpToEnd();
       onSessionsChanged();
@@ -112,8 +115,8 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
   // -- the turn -------------------------------------------------------------
 
   const send = useCallback(
-    async (text, thinkingLevel = null) => {
-      if (streaming || !text.trim()) return;
+    async (text, files = [], thinkingLevel = null) => {
+      if (streaming || (!text.trim() && !files.length)) return;
       setStreaming(true);
 
       const answer = message("assistant", "", { streaming: true });
@@ -136,7 +139,24 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
         ]);
 
       try {
-        const response = await api.chat(text, sessionId, thinkingLevel, provider);
+        // Read before the request so the bubble can show the picture straight
+        // away: the same base64 that goes up is what the preview renders from,
+        // which costs nothing extra and avoids an object URL to keep track of.
+        const attachments = files.length ? await readFiles(files) : [];
+        if (attachments.length) {
+          setMessages((prev) =>
+            prev.map((m) => (m.key === asked.key ? { ...m, attachments } : m)),
+          );
+          jumpToEnd();
+        }
+
+        const response = await api.chat(
+          text,
+          sessionId,
+          attachments,
+          thinkingLevel,
+          provider,
+        );
 
         for await (const { event, data } of readEvents(response)) {
           if (event === "session") {
@@ -176,7 +196,7 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
         if (!(error instanceof UnauthorizedError)) {
           // A refusal from the server already says what went wrong and why.
           // Only a genuinely dropped connection needs to be described as one.
-          const explained = error instanceof ApiError;
+          const explained = error instanceof ApiError || error.name === "FileReadError";
           fail(explained ? error.message : "Lost the connection: " + error.message);
         }
       } finally {

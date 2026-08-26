@@ -8,6 +8,12 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "httpx>=0.27",
     "pydantic>=2.7",
+    # Attachments. Pillow re-encodes formats the local runner refuses and
+    # flattens transparency; pypdf is the one document format that needs a
+    # real parser, the Office and OpenDocument ones being ZIPs of XML that
+    # extract.py reads with the standard library.
+    "pillow>=10.0",
+    "pypdf>=4.0",
 ]
 
 [project.optional-dependencies]

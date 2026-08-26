@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { StagedAttachments } from "./Attachments";
 import { Icon } from "./Icon";
 
 const EFFORTS = ["low", "medium", "high"];
@@ -15,8 +16,17 @@ const EFFORTS = ["low", "medium", "high"];
 export function Composer({ disabled, focusToken, sessionLabel, onSend }) {
   const [value, setValue] = useState("");
   const [effort, setEffort] = useState("medium");
+  // Picked but not sent. Each carries its own key because two files can have
+  // the same name, and an object URL for images so the thumbnail costs nothing
+  // -- revoked on removal and on send, or the previews leak.
+  const [staged, setStaged] = useState([]);
+  const [dropping, setDropping] = useState(false);
   const form = useRef(null);
   const input = useRef(null);
+  const picker = useRef(null);
+  const dragDepth = useRef(0);
+  const stagedRef = useRef(staged);
+  stagedRef.current = staged;
 
   // Grow with the text, up to 40% of the viewport. The message list pads
   // itself by --composer-h, so the last turn is never behind the box -- which
@@ -29,7 +39,7 @@ export function Composer({ disabled, focusToken, sessionLabel, onSend }) {
       "--composer-h",
       form.current.offsetHeight + "px",
     );
-  }, [value]);
+  }, [value, staged]);
 
   // The layout effect above covers everything that changes the composer's
   // contents. This covers everything that changes its box for other reasons --
@@ -51,21 +61,82 @@ export function Composer({ disabled, focusToken, sessionLabel, onSend }) {
     if (focusToken) input.current.focus();
   }, [focusToken]);
 
+  const stage = useCallback((incoming) => {
+    const items = [...incoming].map((file) => ({
+      key: `${file.name}:${file.size}:${file.lastModified}:${Math.random()}`,
+      file,
+      preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+    }));
+    setStaged((prev) => [...prev, ...items]);
+  }, []);
+
+  const unstage = useCallback((key) => {
+    setStaged((prev) => {
+      const going = prev.find((item) => item.key === key);
+      if (going?.preview) URL.revokeObjectURL(going.preview);
+      return prev.filter((item) => item.key !== key);
+    });
+  }, []);
+
+  // Anywhere on the window, not just over the composer -- but the composer is
+  // what lights up, since that is where they land. Depth-counted because
+  // dragenter/dragleave fire for every child element crossed on the way in.
+  useEffect(() => {
+    const enter = (event) => {
+      if (![...(event.dataTransfer?.types || [])].includes("Files")) return;
+      dragDepth.current += 1;
+      setDropping(true);
+    };
+    const leave = () => {
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (!dragDepth.current) setDropping(false);
+    };
+    const over = (event) => event.preventDefault();
+    const drop = (event) => {
+      event.preventDefault();
+      dragDepth.current = 0;
+      setDropping(false);
+      if (event.dataTransfer?.files?.length) stage(event.dataTransfer.files);
+    };
+    window.addEventListener("dragenter", enter);
+    window.addEventListener("dragleave", leave);
+    window.addEventListener("dragover", over);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragenter", enter);
+      window.removeEventListener("dragleave", leave);
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("drop", drop);
+    };
+  }, [stage]);
+
+  // Previews outlive the component otherwise. Read through a ref so the
+  // cleanup runs once, on unmount, rather than after every staging change.
+  useEffect(
+    () => () => stagedRef.current.forEach((i) => i.preview && URL.revokeObjectURL(i.preview)),
+    [],
+  );
+
   const submit = (event) => {
     event.preventDefault();
     // The button is disabled while a turn streams, but Enter still submits --
     // and clearing the box for a send that gets refused loses what was typed.
     if (disabled) return;
-    if (!value.trim()) return;
+    if (!value.trim() && !staged.length) return;
 
     const text = value;
+    const files = staged.map((item) => item.file);
+    staged.forEach((item) => item.preview && URL.revokeObjectURL(item.preview));
     setValue("");
-    onSend(text, effort);
+    setStaged([]);
+    onSend(text, files, effort);
   };
 
   return (
-    <form className="composer" ref={form} onSubmit={submit}>
+    <form className="composer" ref={form} onSubmit={submit} data-dropping={dropping ? "" : undefined}>
       <div className="composer-box">
+        <StagedAttachments items={staged} onRemove={unstage} />
+
         <textarea
           ref={input}
           rows="1"
@@ -86,16 +157,26 @@ export function Composer({ disabled, focusToken, sessionLabel, onSend }) {
         />
 
         <div className="composer-row">
-          {/* Attachments are still being rebuilt on the server: there is no
-              /api/attachments route to post to. Left visible and inert, with
-              the reason on the tooltip, rather than removed and forgotten. */}
+          <input
+            ref={picker}
+            type="file"
+            multiple
+            hidden
+            onChange={(event) => {
+              stage(event.target.files);
+              // Cleared so picking the same file twice in a row still fires.
+              event.target.value = "";
+            }}
+          />
           <button
             type="button"
-            className="chip"
-            title="Attachments are being rebuilt — this does nothing yet."
-            disabled
+            className="chip chip-icon"
+            aria-label="Attach files"
+            title="Attach files"
+            disabled={disabled}
+            onClick={() => picker.current.click()}
           >
-            Attach
+            <Icon name="plus" />
           </button>
 
           {sessionLabel ? <span className="chip">{sessionLabel}</span> : null}

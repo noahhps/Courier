@@ -21,6 +21,37 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:20]}"
 
 
+# Everything about an attachment except the bytes.
+_META_COLUMNS = "id, message_id, kind, name, mime, size, created_at"
+
+
+@dataclass
+class StoredAttachment:
+    id: str
+    message_id: str
+    kind: str  # image | text | document
+    name: str
+    mime: str
+    size: int
+    created_at: int
+    # Both left out of the listing queries: a conversation's worth of image
+    # bytes is megabytes and the UI only needs them one at a time, by id, while
+    # the extracted text is for the model rather than the screen.
+    data: bytes | None = None
+    text: str | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "message_id": self.message_id,
+            "kind": self.kind,
+            "name": self.name,
+            "mime": self.mime,
+            "size": self.size,
+            "created_at": self.created_at,
+        }
+
+
 @dataclass
 class StoredMessage:
     id: str
@@ -169,3 +200,79 @@ class Store:
 
     def delete_message(self, message_id: str) -> None:
         self.db.execute("DELETE FROM messages WHERE id = ?", (message_id,))
+
+    # -- attachments ------------------------------------------------------
+
+    def add_attachment(
+        self,
+        message_id: str,
+        *,
+        kind: str,
+        name: str,
+        mime: str,
+        data: bytes,
+        text: str | None = None,
+    ) -> StoredAttachment:
+        attachment = StoredAttachment(
+            id=_new_id("att"),
+            message_id=message_id,
+            kind=kind,
+            name=name,
+            mime=mime,
+            size=len(data),
+            created_at=_now(),
+            text=text,
+        )
+        self.db.execute(
+            """
+            INSERT INTO attachments
+                (id, message_id, kind, name, mime, size, data, text, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                attachment.id,
+                attachment.message_id,
+                attachment.kind,
+                attachment.name,
+                attachment.mime,
+                attachment.size,
+                data,
+                attachment.text,
+                attachment.created_at,
+            ),
+        )
+        return attachment
+
+    def get_attachment(self, attachment_id: str) -> StoredAttachment | None:
+        """One file, bytes included. This is what serves an image to the UI."""
+        row = self.db.query_one(
+            f"SELECT {_META_COLUMNS}, data, text FROM attachments WHERE id = ?",
+            (attachment_id,),
+        )
+        return StoredAttachment(**dict(row)) if row else None
+
+    def attachments_for_session(
+        self, session_id: str, *, with_data: bool = False
+    ) -> dict[str, list[StoredAttachment]]:
+        """Every file in a conversation, keyed by the message it belongs to.
+
+        `with_data` is the difference between describing the files to the UI and
+        handing the bytes to a model: the first happens on every session open,
+        the second only while assembling a prompt.
+        """
+        columns = ", ".join(f"a.{c}" for c in _META_COLUMNS.split(", "))
+        rows = self.db.query(
+            f"""
+            SELECT {columns}{', a.data, a.text' if with_data else ''}
+              FROM attachments a
+              JOIN messages m ON m.id = a.message_id
+             WHERE m.session_id = ?
+             ORDER BY a.created_at
+            """,
+            (session_id,),
+        )
+        grouped: dict[str, list[StoredAttachment]] = {}
+        for row in rows:
+            attachment = StoredAttachment(**dict(row))
+            grouped.setdefault(attachment.message_id, []).append(attachment)
+        return grouped

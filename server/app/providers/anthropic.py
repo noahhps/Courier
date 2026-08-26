@@ -52,7 +52,7 @@ class AnthropicProvider:
         # message; everything else maps across directly.
         system = "\n\n".join(m.content for m in messages if m.role == "system")
         turns = [
-            {"role": m.role, "content": m.content}
+            {"role": m.role, "content": _content(m)}
             for m in messages
             if m.role in ("user", "assistant")
         ]
@@ -119,3 +119,26 @@ def _translate_error(exc: Exception) -> ProviderError:
         return ContextOverflow(text)
     retryable = name in ("RateLimitError", "APIConnectionError", "InternalServerError")
     return ProviderError(f"{name}: {text[:500]}", retryable=retryable)
+
+
+def _content(message: Message):
+    """A message body in the Messages API shape.
+
+    Plain text stays a plain string -- the API accepts either, and keeping the
+    common case simple keeps the request readable. Images turn the body into a
+    block list, with the image first: the model reads the picture, then the
+    question about it.
+    """
+    if not message.images:
+        return message.content
+
+    blocks: list[dict] = [
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": image.mime, "data": image.b64()},
+        }
+        for image in message.images
+    ]
+    if message.content:
+        blocks.append({"type": "text", "text": message.content})
+    return blocks
