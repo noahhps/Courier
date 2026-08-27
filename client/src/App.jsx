@@ -17,6 +17,7 @@ import { useRailWidth } from "./hooks/useRailWidth";
 import { useSessions } from "./hooks/useSessions";
 import { UnauthorizedError, createApi } from "./lib/api";
 import { ApiContext } from "./lib/api-context";
+import { fetchDevToken } from "./lib/dev-token";
 
 const TOKEN_KEY = "unified-llm-token";
 // Whether the rail stays out. A layout preference rather than data, so it is
@@ -33,7 +34,12 @@ const READY = "ready";
 
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
-  const [phase, setPhase] = useState(() => (localStorage.getItem(TOKEN_KEY) ? BOOT : GATE));
+  // A dev run with nothing in storage still boots silently rather than showing
+  // the gate: the effect below is about to fetch the token, and a gate that
+  // appears for one frame and dismisses itself is worse than no gate at all.
+  const [phase, setPhase] = useState(() =>
+    localStorage.getItem(TOKEN_KEY) || import.meta.env.DEV ? BOOT : GATE,
+  );
   const [gateError, setGateError] = useState("");
   const [focusToken, setFocusToken] = useState(0);
   // Which of the rail's three destinations is on screen.
@@ -63,6 +69,10 @@ export default function App() {
 
   const bootstrapped = useRef("");
   const signOutRef = useRef(() => {});
+  // Dev-only bookkeeping: whether the token has been asked for on this page
+  // load, and whether a deliberate sign-out has taken the offer off the table.
+  const devTokenAsked = useRef(false);
+  const devSignedOut = useRef(false);
 
   const signOut = useCallback((message) => {
     localStorage.removeItem(TOKEN_KEY);
@@ -88,6 +98,44 @@ export default function App() {
 
   const chat = useChat(api, { onSessionsChanged, provider });
   const { setBadge, openSession, startNew } = chat;
+
+  // -- development ----------------------------------------------------------
+
+  // Editing the front end shouldn't begin by copying the token out of the
+  // terminal, so in `npm run dev` the dev server hands it over and the gate is
+  // skipped. Nothing is bypassed: the token is real, every call below still
+  // sends it, and the server still checks it. `import.meta.env.DEV` is a
+  // compile-time constant, so this whole block is absent from a build.
+  useEffect(() => {
+    if (!import.meta.env.DEV || token) return;
+    // A sign-out from the settings page is deliberate and has to stick.
+    if (devSignedOut.current) return;
+    // Asked at most once per page load, so a token the server has stopped
+    // accepting cannot spin between the gate and a 401. What this does still
+    // recover from is the case worth recovering from: a *stored* token that
+    // has gone stale, which arrives here as an empty token after the 401 and
+    // gets replaced by whatever the server regenerated.
+    if (devTokenAsked.current) return;
+    // Set synchronously, and no captured `cancelled` flag, for the same reason
+    // `bootstrapped` below does it this way: StrictMode tears the first effect
+    // down immediately, and this is the only run the guard above will allow.
+    devTokenAsked.current = true;
+
+    (async () => {
+      const value = await fetchDevToken();
+      if (devSignedOut.current) return;
+      if (!value) {
+        setPhase(GATE);
+        return;
+      }
+      setGateError("");
+      setToken(value);
+      // BOOT, not CONNECTING: CONNECTING renders the gate with its button
+      // disabled, which is right after someone typed and wrong here -- nobody
+      // typed, and the gate would appear for the length of one round trip.
+      setPhase(BOOT);
+    })();
+  }, [token]);
 
   // -- bootstrap ------------------------------------------------------------
 
@@ -136,6 +184,11 @@ export default function App() {
     setToken(value);
     setPhase(CONNECTING);
   }, []);
+
+  const handleSignOut = useCallback(() => {
+    devSignedOut.current = true;
+    signOut("");
+  }, [signOut]);
 
   const handleNewSession = useCallback(() => {
     setView("chat");
@@ -258,7 +311,7 @@ export default function App() {
               onProvider={setProvider}
               pinned={railPinned}
               onTogglePin={togglePin}
-              onSignOut={() => signOut("")}
+              onSignOut={handleSignOut}
             />
           )}
         </div>

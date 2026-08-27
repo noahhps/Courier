@@ -226,6 +226,29 @@ dev UI talks to the real thing — real token, real streaming, real history.
 Run the Python server alongside it as usual. `npm run build` when you're done;
 the server only ever reads `dist/`.
 
+**The gate stays out of your way.** In `npm run dev` the dev server reads
+`data/token` and hands it to the UI, so editing the front end doesn't begin by
+copying the token out of the terminal — and a token the server has since
+regenerated is picked up on the next reload instead of dropping you back to the
+gate.
+
+Nothing is bypassed by this. The token is real, every request still carries it,
+and the server still checks it: what goes away is the paste, not the perimeter.
+It is confined to development three times over — the route is registered by an
+`apply: "serve"` Vite plugin, so `npm run build` never emits it and FastAPI
+never serves it; the client code sits behind `import.meta.env.DEV`, which is a
+compile-time constant, so it is absent from `dist/`; and the route refuses any
+request that did not come from loopback, which is what stops `vite --host` from
+handing the token to the network.
+
+If you have moved `DB_PATH`, the token moved with it: point `TOKEN_FILE` at the
+new location so the dev server still finds it.
+
+Two ways to turn it off. `GANTRY_NO_DEV_TOKEN=1 npm run dev` restores the gate —
+which is what you want when the gate is the thing you're working on. Signing out
+from the settings page also sticks for the rest of that page load, rather than
+signing you straight back in.
+
 ## Not built yet
 
 Phase 4 (hybrid FTS5 + `sqlite-vec` retrieval behind a tool), Phase 5
