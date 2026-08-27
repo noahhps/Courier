@@ -38,6 +38,35 @@ TITLE_SIZE = 20
 LEADING = 1.45  # line height as a multiple of the font size
 
 
+# -- house style -------------------------------------------------------------
+#
+# One palette across all four formats, so a deck and the spreadsheet beside it
+# look like they came from the same place. Chosen to survive being printed in
+# grey and to stay legible projected, which rules out anything pale.
+#
+# The model does not choose any of this. Models are poor at visual design and
+# good at structure, so the skill takes content and applies the styling itself
+# -- the only knob exposed is `theme`, which swaps the accent.
+
+THEMES = {
+    "slate": ("1F3A5F", "E8EDF3", "0F1B2A"),   # accent, wash, ink
+    "ink": ("14171D", "ECEFF3", "14171D"),
+    "green": ("1E5B45", "E4EFE9", "10261E"),
+    "plum": ("4A2D5B", "EEE7F2", "241429"),
+}
+DEFAULT_THEME = "slate"
+
+
+def theme_colours(theme: str) -> tuple[str, str, str]:
+    """Accent, wash and ink for a named theme, as RRGGBB without a hash."""
+    return THEMES.get((theme or "").strip().lower(), THEMES[DEFAULT_THEME])
+
+
+def _rgb(hex6: str) -> tuple[float, float, float]:
+    """RRGGBB to the 0-1 triple PDF's colour operators take."""
+    return tuple(int(hex6[i : i + 2], 16) / 255 for i in (0, 2, 4))
+
+
 # Characters models reach for that Helvetica's WinAnsi encoding has no slot
 # for. Left alone each becomes '?', which is how "decision-making" arrives as
 # "decision?making". Mapped to the nearest thing the font can actually draw.
@@ -155,7 +184,7 @@ _STYLE = {
 }
 
 
-def build_docx(title: str, body: str) -> bytes:
+def build_docx(title: str, body: str, theme: str = DEFAULT_THEME) -> bytes:
     """A .docx as bytes.
 
     Styles are named rather than defined: Word supplies its own Title and
@@ -166,15 +195,24 @@ def build_docx(title: str, body: str) -> bytes:
     if title and not any(b.kind == "title" for b in blocks):
         blocks.insert(0, Block("title", title))
 
+    accent, _, _ = theme_colours(theme)
+
     paragraphs = []
     for block in blocks:
         style, size = _STYLE[block.kind]
         text = _xml_escape(block.text)
         bullet = "•  " if block.kind == "bullet" else ""
+        # Headings take the accent; body text is left to Word's own colour so
+        # the document still prints sensibly in black and white.
+        colour = (
+            f'<w:rPr><w:color w:val="{accent}"/></w:rPr>'
+            if block.kind in ("title", "heading")
+            else ""
+        )
         paragraphs.append(
             f'<w:p><w:pPr><w:pStyle w:val="{style}"/>'
             f'<w:spacing w:after="{size}"/></w:pPr>'
-            f'<w:r><w:t xml:space="preserve">{bullet}{text}</w:t></w:r></w:p>'
+            f'<w:r>{colour}<w:t xml:space="preserve">{bullet}{text}</w:t></w:r></w:p>'
         )
 
     document = (
@@ -207,7 +245,7 @@ def _xml_escape(text: str) -> str:
 # -- pdf ---------------------------------------------------------------------
 
 
-def build_pdf(title: str, body: str) -> bytes:
+def build_pdf(title: str, body: str, theme: str = DEFAULT_THEME) -> bytes:
     """A PDF as bytes: Helvetica, wrapped, paginated.
 
     Written by hand because the alternative is a rendering dependency for what
@@ -217,7 +255,7 @@ def build_pdf(title: str, body: str) -> bytes:
     if title and not any(b.kind == "title" for b in blocks):
         blocks.insert(0, Block("title", title))
 
-    pages = _paginate(blocks)
+    pages = _paginate(blocks, theme)
     if not pages:
         pages = [[]]
 
@@ -250,7 +288,7 @@ def build_pdf(title: str, body: str) -> bytes:
     return _assemble(objects, title)
 
 
-def _paginate(blocks: list[Block]) -> list[list[tuple]]:
+def _paginate(blocks: list[Block], theme: str = DEFAULT_THEME) -> list[list[tuple]]:
     """Blocks into pages of positioned lines.
 
     Each line is (font, size, x, y, text). Wrapping is by character count
@@ -267,6 +305,11 @@ def _paginate(blocks: list[Block]) -> list[list[tuple]]:
         "number": "F1", "quote": "F1", "text": "F1",
     }
     usable = PAGE_WIDTH - 2 * MARGIN
+    accent, _, ink = theme_colours(theme)
+    colours = {
+        "title": accent, "heading": accent,
+        "bullet": ink, "number": ink, "quote": accent, "text": ink,
+    }
 
     pages: list[list[tuple]] = []
     current: list[tuple] = []
@@ -291,8 +334,17 @@ def _paginate(blocks: list[Block]) -> list[list[tuple]]:
                 y = PAGE_HEIGHT - MARGIN
             text = ("•  " + line) if (block.kind == "bullet" and index == 0) else line
             x = indent if index == 0 or block.kind not in ("bullet", "number") else indent + 12
-            current.append((font, size, x, y, text))
+            current.append((font, size, x, y, text, colours[block.kind]))
             y -= size * LEADING
+
+        # A rule under the title, the document's one piece of decoration and
+        # the thing that makes a generated page look composed rather than
+        # dumped. Drawn after the text so its y is already past the baseline.
+        if block.kind == "title":
+            y -= 4
+            current.append(("rule", MARGIN, y, 120, 2.5, accent))
+            y -= 10
+
         y -= size * 0.45  # gap after the block
 
     pages.append(current)
@@ -300,12 +352,36 @@ def _paginate(blocks: list[Block]) -> list[list[tuple]]:
 
 
 def _content_stream(lines: list[tuple]) -> bytes:
-    parts = [b"BT"]
-    for font, size, x, y, text in lines:
+    """One page's drawing instructions.
+
+    Text and rules are interleaved rather than drawn in two passes, because a
+    rule belongs immediately under the heading it follows -- and PDF has no
+    z-order beyond the order operators appear in.
+    """
+    parts: list[bytes] = []
+    in_text = False
+    for item in lines:
+        if item[0] == "rule":
+            _, x, y, width, height, colour = item
+            if in_text:
+                parts.append(b"ET")
+                in_text = False
+            red, green, blue = _rgb(colour)
+            parts.append(f"{red:.3f} {green:.3f} {blue:.3f} rg".encode("ascii"))
+            parts.append(f"{x:.1f} {y:.1f} {width:.1f} {height:.1f} re f".encode("ascii"))
+            continue
+
+        font, size, x, y, text, colour = item
+        if not in_text:
+            parts.append(b"BT")
+            in_text = True
+        red, green, blue = _rgb(colour)
+        parts.append(f"{red:.3f} {green:.3f} {blue:.3f} rg".encode("ascii"))
         parts.append(f"/{font} {size} Tf".encode("ascii"))
         parts.append(f"1 0 0 1 {x:.1f} {y:.1f} Tm".encode("ascii"))
         parts.append(b"(" + _pdf_text(text) + b") Tj")
-    parts.append(b"ET")
+    if in_text:
+        parts.append(b"ET")
     return b"\n".join(parts)
 
 
@@ -462,6 +538,7 @@ _XLSX_TYPES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Default Extension="xml" ContentType="application/xml"/>
 <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
 <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
 </Types>"""
 
 _XLSX_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -472,10 +549,47 @@ _XLSX_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 _WORKBOOK_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>"""
 
 
-def build_xlsx(title: str, body: str) -> bytes:
+def _xlsx_styles(accent: str, wash: str) -> str:
+    """Three cell styles: default, header, and banded row.
+
+    Fills 0 and 1 have to be `none` and `gray125` in that order -- Excel treats
+    the first two entries as reserved and silently misreads every later index
+    if they are missing, which shows up as the wrong colour on the wrong cells.
+    """
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<fonts count="2">'
+        '<font><sz val="11"/><name val="Calibri"/></font>'
+        f'<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>'
+        "</fonts>"
+        '<fills count="4">'
+        '<fill><patternFill patternType="none"/></fill>'
+        '<fill><patternFill patternType="gray125"/></fill>'
+        f'<fill><patternFill patternType="solid"><fgColor rgb="FF{accent}"/>'
+        '<bgColor indexed="64"/></patternFill></fill>'
+        f'<fill><patternFill patternType="solid"><fgColor rgb="FF{wash}"/>'
+        '<bgColor indexed="64"/></patternFill></fill>'
+        "</fills>"
+        '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        '<cellXfs count="3">'
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+        '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" '
+        'applyFont="1" applyFill="1" applyAlignment="1">'
+        '<alignment vertical="center"/></xf>'
+        '<xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/>'
+        "</cellXfs>"
+        '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+        "</styleSheet>"
+    )
+
+
+def build_xlsx(title: str, body: str, theme: str = DEFAULT_THEME) -> bytes:
     """A .xlsx as bytes, one sheet.
 
     Inline strings rather than a shared-string table: the table is a size
@@ -491,24 +605,61 @@ def build_xlsx(title: str, body: str) -> bytes:
     for bad in "[]:*?/\\":
         sheet_name = sheet_name.replace(bad, "-")
 
+    accent, wash, _ = theme_colours(theme)
+
+    # The first row is treated as headings whenever there is more than one row.
+    # A single-row sheet is data, not a header with nothing under it.
+    has_header = len(rows) > 1
+
     xml_rows = []
     for r, row in enumerate(rows, start=1):
+        # 1 = header, 2 = banded, 0 = plain. Banding every other body row is
+        # what makes a wide table readable across.
+        style = 1 if (has_header and r == 1) else (2 if r % 2 == 1 else 0)
         cells = []
         for c, value in enumerate(row):
             ref = f"{_column(c)}{r}"
-            if _is_number(value):
+            attr = f' s="{style}"' if style else ""
+            if _is_number(value) and not (has_header and r == 1):
                 number = value.strip().replace(",", "")
-                cells.append(f'<c r="{ref}"><v>{number}</v></c>')
+                cells.append(f'<c r="{ref}"{attr}><v>{number}</v></c>')
             elif value:
                 cells.append(
-                    f'<c r="{ref}" t="inlineStr"><is><t xml:space="preserve">'
+                    f'<c r="{ref}"{attr} t="inlineStr"><is><t xml:space="preserve">'
                     f"{_xml_escape(value)}</t></is></c>"
                 )
+            elif style:
+                cells.append(f'<c r="{ref}"{attr}/>')
         xml_rows.append(f'<row r="{r}">{"".join(cells)}</row>')
 
+    # Widths from the widest cell in each column. Excel's own auto-fit only
+    # runs when a person double-clicks the divider, so a generated sheet opens
+    # full of ### without this.
+    widths = []
+    for c in range(max((len(row) for row in rows), default=1)):
+        longest = max((len(row[c]) for row in rows if c < len(row)), default=8)
+        widths.append(
+            f'<col min="{c + 1}" max="{c + 1}" '
+            f'width="{min(max(longest + 4, 9), 60)}" customWidth="1"/>'
+        )
+
+    # A frozen header stays put when the sheet is scrolled, which is the single
+    # most useful thing a spreadsheet can do for you and costs one element.
+    panes = (
+        '<sheetViews><sheetView workbookViewId="0">'
+        '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>'
+        "</sheetView></sheetViews>"
+        if has_header
+        else ""
+    )
+
+    # Element order matters: the schema is a sequence, and Excel rejects a
+    # worksheet whose children are shuffled.
     sheet = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f"{panes}"
+        f'<cols>{"".join(widths)}</cols>'
         f'<sheetData>{"".join(xml_rows)}</sheetData></worksheet>'
     )
     workbook = (
@@ -525,6 +676,7 @@ def build_xlsx(title: str, body: str) -> bytes:
             "xl/workbook.xml": workbook,
             "xl/_rels/workbook.xml.rels": _WORKBOOK_RELS,
             "xl/worksheets/sheet1.xml": sheet,
+            "xl/styles.xml": _xlsx_styles(accent, wash),
         }
     )
 
@@ -538,3 +690,257 @@ def _zip(parts: dict[str, str]) -> bytes:
             info.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(info, content)
     return buffer.getvalue()
+
+
+# -- pptx --------------------------------------------------------------------
+#
+# The most involved of the three, because a presentation cannot consist of
+# slides alone: PowerPoint requires a master and at least one layout for the
+# slides to inherit from, each pointing at the other through its own
+# relationship part. That scaffolding is fixed, so it sits here as constants
+# and only the slides themselves are generated.
+
+# English Metric Units: 914400 to the inch. A 16:9 deck at 13.333 x 7.5in.
+_SLIDE_W = 12192000
+_SLIDE_H = 6858000
+_SLIDE_MARGIN = 685800  # 0.75in
+
+_PPTX_TYPES_HEAD = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    '<Default Extension="xml" ContentType="application/xml"/>'
+    '<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>'
+    '<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>'
+    '<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>'
+)
+
+_PPTX_ROOT_RELS = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>'
+    "</Relationships>"
+)
+
+_NS = (
+    ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+    ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+    ' xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"'
+)
+
+_EMPTY_TREE = (
+    "<p:cSld><p:spTree>"
+    '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
+    "<p:grpSpPr/></p:spTree></p:cSld>"
+)
+
+_CLR_MAP = (
+    '<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1"'
+    ' accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5"'
+    ' accent6="accent6" hlink="hlink" folHlink="folHlink"/>'
+)
+
+_MASTER = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    f"<p:sldMaster{_NS}>{_EMPTY_TREE}{_CLR_MAP}"
+    '<p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst>'
+    "</p:sldMaster>"
+)
+
+_MASTER_RELS = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>'
+    "</Relationships>"
+)
+
+_LAYOUT = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    f'<p:sldLayout{_NS} type="blank" preserve="1">{_EMPTY_TREE}'
+    "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>"
+)
+
+_LAYOUT_RELS = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/>'
+    "</Relationships>"
+)
+
+_SLIDE_RELS = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>'
+    "</Relationships>"
+)
+
+
+def slides_from(body: str, title: str = "") -> list[tuple[str, list[str]]]:
+    """Blocks grouped into slides.
+
+    A heading of any level starts a new slide and becomes its title; everything
+    beneath it is that slide's body. So the same markup that writes a document
+    also writes a deck, and the model does not have to learn a second format to
+    get one.
+    """
+    decks: list[tuple[str, list[str]]] = []
+    current_title = title or ""
+    current_body: list[str] = []
+    # True while `current_title` is still the caller's argument rather than
+    # something read out of the body. A deck whose text opens with its own
+    # heading would otherwise get an empty duplicate slide in front of it.
+    seeded = bool(title)
+
+    for block in parse(body):
+        if block.kind in ("title", "heading"):
+            if seeded and not current_body:
+                current_title = block.text
+                seeded = False
+                continue
+            if current_title or current_body:
+                decks.append((current_title, current_body))
+            current_title, current_body = block.text, []
+        else:
+            # Each line carries its own marker: a bullet gets one, a numbered
+            # item already has its number, and prose gets neither. Deciding it
+            # here rather than in the renderer is what stops "1." arriving as
+            # "-  1.".
+            prefix = "•  " if block.kind == "bullet" else ""
+            current_body.append(prefix + block.text)
+        seeded = False
+
+    if current_title or current_body:
+        decks.append((current_title, current_body))
+    return decks or [(title or "Untitled", [])]
+
+
+def _textbox(
+    shape_id: int,
+    name: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    lines: list[str],
+    size: int,
+    bold: bool,
+    colour: str = "14171D",
+    spacing: int = 0,
+) -> str:
+    """One text frame. Sizes are in hundredths of a point, hence the *100.
+
+    `spacing` is the gap before each paragraph, also in hundredths -- bullets
+    need air between them or a slide reads as a wall.
+    """
+    weight = ' b="1"' if bold else ""
+    before = f'<a:spcBef><a:spcPts val="{spacing}"/></a:spcBef>' if spacing else ""
+    paragraphs = "".join(
+        f"<a:p><a:pPr>{before}</a:pPr>"
+        f'<a:r><a:rPr lang="en-US" sz="{size * 100}"{weight} dirty="0">'
+        f'<a:solidFill><a:srgbClr val="{colour}"/></a:solidFill></a:rPr>'
+        f"<a:t>{_xml_escape(line)}</a:t></a:r></a:p>"
+        for line in (lines or [""])
+    )
+    return (
+        f'<p:sp><p:nvSpPr><p:cNvPr id="{shape_id}" name="{name}"/>'
+        '<p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>'
+        f'<p:spPr><a:xfrm><a:off x="{x}" y="{y}"/>'
+        f'<a:ext cx="{width}" cy="{height}"/></a:xfrm>'
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>'
+        '<p:txBody><a:bodyPr wrap="square"><a:normAutofit/></a:bodyPr>'
+        f"<a:lstStyle/>{paragraphs}</p:txBody></p:sp>"
+    )
+
+
+def build_pptx(title: str, body: str, theme: str = DEFAULT_THEME) -> bytes:
+    """A .pptx as bytes: one title-and-bullets slide per heading."""
+    accent, wash, ink = theme_colours(theme)
+    decks = slides_from(body, title)
+    inner_width = _SLIDE_W - 2 * _SLIDE_MARGIN
+    title_height = 1200000
+
+    parts: dict[str, str] = {
+        "_rels/.rels": _PPTX_ROOT_RELS,
+        "ppt/slideMasters/slideMaster1.xml": _MASTER,
+        "ppt/slideMasters/_rels/slideMaster1.xml.rels": _MASTER_RELS,
+        "ppt/slideLayouts/slideLayout1.xml": _LAYOUT,
+        "ppt/slideLayouts/_rels/slideLayout1.xml.rels": _LAYOUT_RELS,
+    }
+
+    overrides: list[str] = []
+    slide_ids: list[str] = []
+    # rId1 on the presentation is the master, so slides start at rId2.
+    presentation_rels = [
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/'
+        'officeDocument/2006/relationships/slideMaster" '
+        'Target="slideMasters/slideMaster1.xml"/>'
+    ]
+
+    for number, (heading, lines) in enumerate(decks, start=1):
+        # A short accent rule under the title, drawn as a filled rectangle.
+        # It is the one piece of decoration here, and it is what stops a slide
+        # reading as two blocks of text floating on nothing.
+        rule = (
+            '<p:sp><p:nvSpPr><p:cNvPr id="4" name="Rule"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>'
+            f'<p:spPr><a:xfrm><a:off x="{_SLIDE_MARGIN}" '
+            f'y="{_SLIDE_MARGIN + title_height - 120000}"/>'
+            f'<a:ext cx="1100000" cy="52000"/></a:xfrm>'
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+            f'<a:solidFill><a:srgbClr val="{accent}"/></a:solidFill>'
+            "</p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody></p:sp>"
+        )
+
+        shapes = _textbox(
+            2, "Title", _SLIDE_MARGIN, _SLIDE_MARGIN,
+            inner_width, title_height,
+            [heading] if heading else [], 32, True, accent,
+        ) + (rule if heading else "")
+
+        if lines:
+            top = _SLIDE_MARGIN + title_height + 200000
+            shapes += _textbox(
+                3, "Body", _SLIDE_MARGIN, top,
+                inner_width, _SLIDE_H - top - _SLIDE_MARGIN,
+                lines, 18, False, ink, 900,
+            )
+
+        parts[f"ppt/slides/slide{number}.xml"] = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            f"<p:sld{_NS}><p:cSld>"
+            f'<p:bg><p:bgPr><a:solidFill><a:srgbClr val="{wash}"/></a:solidFill>'
+            "<a:effectLst/></p:bgPr></p:bg>"
+            "<p:spTree>"
+            '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
+            f"<p:grpSpPr/>{shapes}</p:spTree></p:cSld>"
+            "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>"
+        )
+        parts[f"ppt/slides/_rels/slide{number}.xml.rels"] = _SLIDE_RELS
+        overrides.append(
+            f'<Override PartName="/ppt/slides/slide{number}.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.'
+            'presentationml.slide+xml"/>'
+        )
+        slide_ids.append(f'<p:sldId id="{255 + number}" r:id="rId{number + 1}"/>')
+        presentation_rels.append(
+            f'<Relationship Id="rId{number + 1}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/'
+            'relationships/slide" '
+            f'Target="slides/slide{number}.xml"/>'
+        )
+
+    parts["[Content_Types].xml"] = _PPTX_TYPES_HEAD + "".join(overrides) + "</Types>"
+    parts["ppt/presentation.xml"] = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f"<p:presentation{_NS}>"
+        '<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>'
+        f'<p:sldIdLst>{"".join(slide_ids)}</p:sldIdLst>'
+        f'<p:sldSz cx="{_SLIDE_W}" cy="{_SLIDE_H}"/>'
+        f'<p:notesSz cx="{_SLIDE_H}" cy="{_SLIDE_W}"/>'
+        "</p:presentation>"
+    )
+    parts["ppt/_rels/presentation.xml.rels"] = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        f'{"".join(presentation_rels)}</Relationships>'
+    )
+    return _zip(parts)

@@ -146,6 +146,24 @@ MIGRATIONS: list[str] = [
     -- and a partial index keeps that answer cheap once most rows are done.
     CREATE INDEX idx_chunks_pending ON chunks(id) WHERE embedding IS NULL;
     """,
+    # 5 -- the working that produced an answer.
+    #
+    # Reasoning and tool calls used to be live-only: streamed to the client and
+    # then dropped, so reopening a conversation gave back the reply with no
+    # record of how it was reached. That is fine for a chat and wrong for a
+    # thing that runs skills -- "which file did it read?" is exactly the
+    # question you ask a day later.
+    #
+    # `reasoning` is the raw thinking stream, stored as it arrived. `skills` is
+    # a JSON array of {name, arguments, result}, not a table: it is always read
+    # whole, always with its message, and never queried across messages, so a
+    # column keeps the read to the one row the client already fetches.
+    #
+    # Both NULL on every existing row, and on any turn that used neither.
+    """
+    ALTER TABLE messages ADD COLUMN reasoning TEXT;
+    ALTER TABLE messages ADD COLUMN skills TEXT;
+    """,
 ]
 
 

@@ -23,6 +23,8 @@ import { ModelMenu } from "./ModelMenu";
  * rules is how one of them ends up forgotten.
  */
 
+const LIST_KEY = "unified-llm-rail-list-open";
+
 const DESTINATIONS = [
   { id: "chat", label: "Chat" },
   { id: "memory", label: "Memory" },
@@ -62,6 +64,12 @@ export function NavRail({
   onNewSession,
   onDelete,
 }) {
+  // Whether the conversation list is unfolded under Chat. A layout preference,
+  // so it persists like the pin does -- someone who keeps it shut wants it shut
+  // tomorrow as well.
+  const [listOpen, setListOpen] = useState(
+    () => localStorage.getItem(LIST_KEY) !== "0",
+  );
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -155,11 +163,32 @@ export function NavRail({
                 open it -- tabbing in is the only way they have. */}
             <div className="navrail-sessions">
               <div className="navrail-sessions-inner">
+                {/* The section header doubles as the fold. `aria-controls`
+                    rather than nesting the list inside the button: a button
+                    wrapping a list of buttons is not a thing a screen reader
+                    can describe. */}
+                <button
+                  type="button"
+                  className="navrail-section"
+                  aria-expanded={listOpen}
+                  aria-controls="navrail-session-list"
+                  onClick={() => {
+                    const next = !listOpen;
+                    setListOpen(next);
+                    localStorage.setItem(LIST_KEY, next ? "1" : "0");
+                  }}
+                >
+                  <span>Conversations</span>
+                  <span className="navrail-chevron" aria-hidden="true">
+                    {listOpen ? "⌄" : "›"}
+                  </span>
+                </button>
+
                 <button type="button" className="navrail-new" onClick={onNewSession}>
                   + New conversation
                 </button>
 
-                <ul>
+                <ul id="navrail-session-list" hidden={!listOpen}>
                   {sessions.map((session) => (
                     <li key={session.id} data-active={String(session.id === activeId)}>
                       <button

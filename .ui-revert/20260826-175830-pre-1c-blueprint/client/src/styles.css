@@ -20,83 +20,63 @@
      both running the full height of the window. No gutter, no radius, nothing
      floating -- this reverses the tinted band and the rail's outline, because
      the reference has neither and the two cannot both be true. */
-  --shell: #eef1f6;       /* ground: the page, and the rail */
-  --menu: #e9edf4;        /* the rail once it opens, per 1c's applied mock */
-  --menu-well: #e9edf4;   /* the conversation list */
-  --ground: #ffffff;      /* sheet: the drafting surface */
-  --rail: #f4f6fa;        /* inset panels, logs and code */
-  --surface: #ffffff;     /* a card on the sheet */
-  --ink: #0e1420;         /* graphite */
-
-  /* The drafting grid under the sheet. 1c rules its working surface at 22px
-     and that ruling is the direction's whole argument -- take it away and it
-     is cobalt on grey like everything else. */
-  --grid-line: #f1f4f9;
-  --grid-step: 22px;
+  --shell: #f7f7f8;       /* the rail, and the page behind it */
+  --menu: #f7f7f8;        /* the rail once it opens: the same surface */
+  --menu-well: #ececee;   /* the conversation list, when it needs a ground */
+  --ground: #ffffff;      /* the sheet the conversation lives on */
+  --rail: #f1f4f7;        /* inset panels and code, inside the sheet */
+  --surface: #fff;        /* a card sitting on the ground */
+  --ink: #14171d;         /* never pure black */
 
   /* The four tints. Each has a saturated form for marks and a field form for
      areas -- the field is what a header or a callout is filled with. */
-  /* 1c runs on one accent and one pass colour. The four-tint system stays as
-     names so nothing downstream breaks, but violet and blue now resolve to the
-     same cobalt -- the direction is explicit that a single institutional blue
-     carries everything actionable. */
-  --violet: #1f4fd8;
-  --violet-soft: #5a7fe6;
-  --violet-field: #e2e8f8;
-  --violet-wash: #e7ecf9; /* the user's own turn */
-  --blue: #1f4fd8;
-  --blue-field: #e2e8f8;
+  --violet: #4a49b8;
+  --violet-soft: #7473d2;
+  --violet-field: #dedcf4;
+  --violet-wash: #d8e0f6; /* the user's own bubble, and memory nudges */
+  --blue: #2b53bd;
+  --blue-field: #d5e0f7;
   /* The user's own bubble, and the send button. Blue rather than violet: in
      this layout the only two things wearing a fill are the thing you typed and
      the button that sends it, and they should read as the same voice. */
-  --blue-wash: #e7ecf9;
-  --send: #1f4fd8;
-  --green: #0e7c66;       /* pass */
-  --green-field: #d8ece7;
-  /* Not in 1c, which names no warning colour. Derived to sit beside cobalt and
-     pass without becoming a third accent. */
-  --ochre: #9a6b12;
-  --ochre-field: #f3e8d2;
+  --blue-wash: #dfe9fb;
+  --send: #3a6fd8;
+  --green: #2f7a58;
+  --green-field: #cfe7db;
+  --ochre: #9c7208;
+  --ochre-field: #f2e4c2;
 
   /* The blue from the archived Yiqi Sheet palette, brought forward. It is the
      one saturated colour in the system and it means "you can act on this":
      links, destructive text, the current section. Violet stays ambient -- it
      fills the pastel headers and washes and never asks to be clicked -- so the
      two never compete for the same job despite sitting close in hue. */
-  --accent: #1f4fd8;      /* cobalt */
-  --accent-hover: #173da8;
+  --accent: #0000cc;
+  --accent-hover: #000099;
 
   /* Firmer than the drawing. On a white ground with no fills left to do the
      work, these lines are the only thing separating one surface from the
      next, so they have to be visible rather than implied. */
-  /* Solid, not alpha. 1c's structure is hairline rules on a ruled ground, and
-     a translucent line picks up whatever grid square sits behind it. */
-  --line: #d3dae6;
-  --line-soft: #dce2ec;
-  --line-firm: #c9d2e1;
-  --line-strong: #a9b5c8;
+  --line: rgba(20, 23, 29, 0.2);
+  --line-soft: rgba(20, 23, 29, 0.14);
+  --line-firm: rgba(20, 23, 29, 0.3);
+  --line-strong: rgba(20, 23, 29, 0.46);
 
   /* The design draws these very light. At 9.5px the machine labels were the
      worst offender -- under 3:1 on the ground and effectively decorative.
      Raised until the small type is actually readable. */
   --text: var(--ink);
-  --text-dim: #5b677a;
+  --text-dim: rgba(20, 23, 29, 0.8);
   /* 0.62, not 0.56. Every use of this is under 18px -- machine labels at
      9.5px, the reasoning toggle at 12.5 -- so AA wants 4.5:1, and 0.56
      composites to 4.12 on the white sheet. */
-  /* 1c draws this at #8B97A9. That is 2.96:1 on the sheet and 2.61 on the
-     rail, and every use of it is under 18px -- the board is a specimen, not a
-     contrast audit. Darkened along the same blue-grey until it clears 4.5 on
-     both grounds; #5F6B7D is the lightest value that does. */
-  --text-faint: #5f6b7d;
+  --text-faint: rgba(20, 23, 29, 0.7);
 
-  /* 1c is drawn at 2-3px everywhere -- the swatches, the cards, the console,
-     the applied UI. Rounding is not part of its vocabulary, so the four radii
-     collapse and all of them are nearly square. */
-  --r-pill: 3px;
-  --r-bubble: 3px;
-  --r-surface: 3px;
-  --r-card: 3px;
+  /* Four radii and no others: pill, bubble, surface, card. */
+  --r-pill: 30px;
+  --r-bubble: 22px;
+  --r-surface: 20px;
+  --r-card: 26px;
 
   /* The reading column. The sheet is as wide as the window allows, but the
      conversation inside it is not: measured across 1184px of sheet, a turn ran
@@ -113,13 +93,7 @@
      width the three destination labels need. */
   --rail-open: 252px;
 
-  /* 1c is a single-family system: one grotesque at every size, with weight and
-     tracking doing the work, and a mono for labels and machine output. Neither
-     is vendored -- the project rule is no CDN and this is served over a tailnet
-     that is often offline -- so both fall through to the platform grotesque
-     until a woff2 lands in public/fonts. */
-  --font: "Space Grotesk", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "DM Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
   /* One type scale. Before this the sheet used nineteen sizes -- 12 and 12.5
      and 13 and 13.5 all doing the same job in different components -- which is
@@ -142,7 +116,7 @@
   /* Three trackings, one per role. Anything else was drift: 0.03em on a chip
      and 0 on its neighbour is not a decision, it is two people guessing. */
   --track-label: 0.16em;    /* the machine label, opened right up */
-  --track-display: -0.035em; /* headings, closed up as they get larger */
+  --track-display: -0.03em; /* headings, closed up as they get larger */
   --track-body: -0.005em;   /* everything else */
 }
 
@@ -178,7 +152,7 @@ button {
  * the weight doing the work rather than the size. `.p` is prose. */
 
 .mi {
-  font: 500 var(--t-micro)/1 var(--font-mono);
+  font: 500 var(--t-micro)/1 var(--font);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--text-faint);
@@ -187,10 +161,7 @@ button {
 .mi[data-act] { color: var(--accent); }
 
 .h {
-  /* 700, not 300. 1c sets its display at Space Grotesk 700 with -3.5% tracking
-     -- the weight is the direction's signature and a light heading reads as a
-     different product entirely. */
-  font-weight: 700;
+  font-weight: 300;
   letter-spacing: var(--track-display);
   color: var(--ink);
   margin: 0;
@@ -439,13 +410,11 @@ svg {
 .navrail-top {
   display: flex;
   align-items: center;
-  /* No gap while shut -- a gap either side of two zero-width children still
-     reserves 22px, which is most of the overflow on its own. */
-  gap: 0;
+  gap: 11px;
   justify-content: center;
   transition: justify-content 0.22s ease;
 }
-.navrail[data-open] .navrail-top { justify-content: flex-start; gap: 11px; }
+.navrail[data-open] .navrail-top { justify-content: flex-start; }
 
 /* Both circles are buttons. They keep the same 24px footprint the design drew
    them at, and gain a focus ring and a hit area rather than any new chrome --
@@ -479,31 +448,10 @@ svg {
   white-space: nowrap;
   opacity: 0;
   transition: opacity 0.14s ease;
-  /* Zero width while shut, not just transparent. At opacity 0 it still
-     occupied 53px, and the foot centres an overflowing row by pushing it out
-     of *both* ends -- which put the status dot at x = -6, half of it clipped
-     off the left edge of the rail. */
-  max-width: 0;
-  overflow: hidden;
 }
 .navrail[data-open] .navrail-wordmark,
-.navrail[data-open] .navrail-status {
-  opacity: 1;
-  transition-delay: 0.06s;
-}
-
-/* The status label is a fixed caption beside the provider dot, so a cap keeps
-   a long model name from pushing the foot wide. */
-.navrail[data-open] .navrail-status { max-width: 170px; }
-
-/* The wordmark is not: it is `flex: 1` and it is what drives the pin to the
-   rail's right edge. Capping it at 170px meant that past 242px of rail the
-   wordmark stopped growing and the pin stopped with it, short of the edge --
-   visible as soon as the rail is dragged wider than its default. `none`, and
-   the nowrap plus overflow already there ellipsises a long name. */
-.navrail[data-open] .navrail-wordmark { max-width: none; }
-
-.navrail-wordmark { color: var(--ink); flex: 1; min-width: 0; }
+.navrail[data-open] .navrail-status { opacity: 1; transition-delay: 0.06s; }
+.navrail-wordmark { color: var(--ink); flex: 1; }
 
 /* The pin. Only reachable once the rail is open, which is the only time it
    means anything -- and it is why the rail cannot close on mouseleave while
@@ -511,17 +459,7 @@ svg {
 .navrail-pin {
   display: grid;
   place-items: center;
-  /* Zero-width while shut, for the same reason as the status label below: at
-     opacity 0 it still claimed 26px, and with the gaps that made the top row
-     72px of content in a 56px box -- so centring pushed the mark out to x = 2
-     instead of leaving it on the rail's centre line. */
-  width: 0;
-  overflow: hidden;
-  /* The UA gives a button 1px 6px. Under border-box that is a 12px floor the
-     width cannot go below, which is why zeroing the width alone still left the
-     mark 6px off the rail's centre line. The box is a centred 26px grid; the
-     padding was never doing anything. */
-  padding: 0;
+  width: 26px;
   height: 26px;
   border-radius: 8px;
   flex: none;
@@ -532,7 +470,6 @@ svg {
 }
 .navrail[data-open] .navrail-pin {
   opacity: 1;
-  width: 26px;
   pointer-events: auto;
   transition-delay: 0.06s;
 }
@@ -673,23 +610,6 @@ svg {
 
 .navrail-sessions-inner { overflow: hidden; min-height: 0; }
 
-/* The fold above the conversations, in the shape 1c gives a section label:
-   mono, tracked open, uppercase, with the chevron pushed to the far edge. */
-.navrail-section {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  padding: 6px 10px 5px;
-  border-radius: var(--r-surface);
-  font: 500 var(--t-micro)/1 var(--font-mono);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
-  color: var(--text-faint);
-  white-space: nowrap;
-}
-.navrail-section:hover { color: var(--ink); }
-.navrail-chevron { margin-left: auto; font-size: var(--t-sm); line-height: 1; }
-
 .navrail-new {
   display: block;
   width: 100%;
@@ -789,8 +709,7 @@ svg {
   justify-content: center;
   transition: justify-content 0.22s ease;
 }
-.navrail-foot { gap: 0; }
-.navrail[data-open] .navrail-foot { justify-content: flex-start; gap: 11px; }
+.navrail[data-open] .navrail-foot { justify-content: flex-start; }
 
 .navrail-dot { background: var(--green); }
 .navrail-dot[data-tone="warn"] { background: var(--ochre); }
@@ -870,13 +789,7 @@ svg {
      the only thing between them. */
   margin: 0;
   border-radius: 0;
-  /* The drafting grid. Two 1px gradients rather than an image, so it costs
-     nothing and stays crisp at any zoom. */
   background: var(--ground);
-  background-image:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: var(--grid-step) var(--grid-step);
   overflow: hidden;
   box-shadow: none;
 }
@@ -1053,11 +966,8 @@ svg {
   /* Neutral rather than tinted, and barely rounded. The reference draws the
      user's turn as a quiet plate that gets out of the way -- the answer is the
      thing being read, and a saturated bubble kept pulling the eye back up. */
-  /* 1c's own light panel colour, and the shared radius: the direction draws
-     every box at the same near-square corner, so the user's turn cannot be the
-     one rounded thing on the sheet. */
-  background: var(--rail);
-  border-radius: var(--r-bubble);
+  background: #f4f4f5;
+  border-radius: 10px;
   padding: 10px 14px;
   font: 400 var(--t-body)/1.65 var(--font);
   color: var(--ink);
@@ -1077,20 +987,15 @@ svg {
    is one flat colour and an image would be a request for two bytes of blue.
    Only on an answer -- the user's turn is a plate on the right and needs no
    badge to say who wrote it. */
-.turn-answer { padding-left: 34px; }
-
-/* Anchored to the answer, not to the top of the turn. On the turn it sat above
-   the provenance row and the rule as well, which put it 57px clear of the
-   first line it was supposed to mark. `.answer` is the first thing actually
-   read -- whether that is the reasoning row, a skill trace, or the prose. */
-.answer { position: relative; }
-.answer::before {
+.turn-answer {
+  position: relative;
+  padding-left: 34px;
+}
+.turn-answer::before {
   content: "";
   position: absolute;
-  left: -34px;
-  /* Half the difference between the line box and the disc, so the two share a
-     centre line rather than a top edge. */
-  top: 2px;
+  left: 0;
+  top: 1px;
   width: 22px;
   height: 22px;
   border-radius: 50%;

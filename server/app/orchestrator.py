@@ -53,7 +53,7 @@ MAX_WINDOW_IMAGES = 4
 # How many times a turn may go back to the model after running skills. A local
 # model handed a shelf of them will loop on near-identical calls; this is the
 # thing that stops a bad turn from burning the whole context window.
-MAX_TOOL_ROUNDS = 4
+MAX_TOOL_ROUNDS = 8
 
 # A skill's result is trimmed here rather than in build_window, because the
 # window trims from the *head* -- so an unbounded result would push out the
@@ -195,6 +195,11 @@ class Orchestrator:
         )
 
         parts: list[str] = []
+        # The working, kept so it can be stored with the answer. Reopening a
+        # conversation used to give back the reply alone, which loses the one
+        # thing worth auditing about a turn that ran skills: what it read.
+        reasoning: list[str] = []
+        used: list[dict] = []
         final: Chunk | None = None
         saved = False
         try:
@@ -212,10 +217,11 @@ class Orchestrator:
                 async for chunk in self._stream_with_recovery(
                     provider, window, think=thinking_level, tools=tools
                 ):
-                    # The model's working, not its answer. Sent live and never
-                    # added to `parts`, so it is not persisted: reopening the
-                    # conversation gives back the reply alone.
+                    # The model's working, not its answer -- kept apart from
+                    # `parts` so it is never mistaken for the reply, but stored
+                    # alongside it.
                     if chunk.thinking:
+                        reasoning.append(chunk.thinking)
                         yield _sse("thinking", {"text": chunk.thinking})
                     if chunk.text:
                         round_text.append(chunk.text)
@@ -242,7 +248,13 @@ class Orchestrator:
                     yield _sse(
                         "tool_call", {"name": call.name, "arguments": call.arguments}
                     )
+                    # Recorded before it runs, so a skill that raises or a turn
+                    # the reader abandons still leaves evidence it was asked
+                    # for. `finally` persists whatever this list holds.
+                    record = {"name": call.name, "arguments": call.arguments}
+                    used.append(record)
                     result = await self._run_skill(call)
+                    record["result"] = result
                     yield _sse("tool_result", {"name": call.name, "text": result})
                     window.append(
                         Message(
@@ -255,7 +267,7 @@ class Orchestrator:
         except ProviderError as exc:
             self.router.invalidate_health()
             # Keep whatever arrived before the failure rather than dropping it.
-            self._persist(assistant.id, parts, None, provider)
+            self._persist(assistant.id, parts, None, provider, reasoning, used)
             saved = True
             yield _sse("error", {"message": str(exc), "provider": provider.name})
             return
@@ -264,7 +276,7 @@ class Orchestrator:
             # anything unexpected: a phone dropping off cellular mid-answer
             # should still leave a coherent conversation behind.
             if not saved:
-                self._persist(assistant.id, parts, final, provider)
+                self._persist(assistant.id, parts, final, provider, reasoning, used)
 
         # A turn that ends with nothing to show is a failure, even though every
         # frame arrived and no exception was raised. Left alone it reaches the
@@ -339,12 +351,20 @@ class Orchestrator:
         return str(result)[:MAX_RESULT_CHARS]
 
     def _persist(
-        self, message_id: str, parts: list[str], final: Chunk | None, provider
+        self,
+        message_id: str,
+        parts: list[str],
+        final: Chunk | None,
+        provider,
+        reasoning: list[str] | None = None,
+        skills: list[dict] | None = None,
     ) -> None:
         text = "".join(parts)
         self.store.update_message(
             message_id,
             text,
+            reasoning="".join(reasoning or ()) or None,
+            skills=skills or None,
             tokens=(final.completion_tokens if final else None)
             or (estimate_tokens(text) if text else None),
             model=provider.model,

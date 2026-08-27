@@ -155,7 +155,7 @@ export function Composer({ disabled, focusToken, draft, sessionLabel, onSend }) 
         <textarea
           ref={input}
           rows="1"
-          placeholder="Ask me. Task me."
+          placeholder="Ask anything, or drop in a document…"
           autoComplete="off"
           autoCapitalize="sentences"
           value={value}

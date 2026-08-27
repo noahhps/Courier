@@ -6,6 +6,7 @@ reconstructible from here.
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from dataclasses import dataclass
@@ -62,6 +63,10 @@ class StoredMessage:
     model: str | None
     provider: str | None
     created_at: int
+    # The working, when there was any. `skills` is JSON on the way in and out
+    # of SQLite; `to_dict` is what the client sees, so it decodes there.
+    reasoning: str | None = None
+    skills: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +78,12 @@ class StoredMessage:
             "model": self.model,
             "provider": self.provider,
             "created_at": self.created_at,
+            "reasoning": self.reasoning,
+            # Decoded here rather than in the client: the column is an
+            # implementation detail of this table, and every caller wants the
+            # list. A row written before migration 5, or by a turn that called
+            # nothing, has no JSON to decode.
+            "skills": json.loads(self.skills) if self.skills else [],
         }
 
 
@@ -178,6 +189,8 @@ class Store:
         tokens: int | None = None,
         model: str | None = None,
         provider: str | None = None,
+        reasoning: str | None = None,
+        skills: list[dict] | None = None,
     ) -> None:
         self.db.execute(
             """
@@ -185,10 +198,23 @@ class Store:
                SET content = ?,
                    tokens = COALESCE(?, tokens),
                    model = COALESCE(?, model),
-                   provider = COALESCE(?, provider)
+                   provider = COALESCE(?, provider),
+                   reasoning = COALESCE(?, reasoning),
+                   skills = COALESCE(?, skills)
              WHERE id = ?
             """,
-            (content, tokens, model, provider, message_id),
+            (
+                content,
+                tokens,
+                model,
+                provider,
+                # Empty is stored as NULL rather than as "" or "[]": COALESCE
+                # then leaves whatever was already there, so a retry that
+                # produced no reasoning cannot erase the first attempt's.
+                reasoning or None,
+                json.dumps(skills) if skills else None,
+                message_id,
+            ),
         )
 
     def list_messages(self, session_id: str) -> list[StoredMessage]:

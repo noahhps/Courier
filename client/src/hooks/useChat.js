@@ -97,7 +97,18 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
           // A turn can be nothing but a dropped image, so a message with no
           // text but with files still belongs on screen.
           .filter((m) => m.role !== "system" && (m.content || m.attachments?.length))
-          .map((m) => message(m.role, m.content, { attachments: m.attachments })),
+          // The working comes back with the turn now, so a reopened
+          // conversation still shows what was thought and what was called.
+          // `skills` is already a list from the server; `|| undefined` so an
+          // empty one leaves the trace unrendered rather than drawing an empty
+          // frame around nothing.
+          .map((m) =>
+            message(m.role, m.content, {
+              attachments: m.attachments,
+              reasoning: m.reasoning || undefined,
+              skills: m.skills?.length ? m.skills : undefined,
+            }),
+          ),
       );
       jumpToEnd();
       onSessionsChanged();
