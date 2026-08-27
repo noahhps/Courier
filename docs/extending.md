@@ -160,6 +160,9 @@ embed them (`ollama.embed` already exists and is unused) → store the float32
 blobs → cosine search → expose it as one tool the model can call. Each of those
 is a session's work and each is testable alone.
 
+That feature, and the curated facts behind the Memory page, are worked through
+step by step in **[`memory.md`](memory.md)**.
+
 ---
 
 ## 5. Wiring the frontend back up

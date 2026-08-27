@@ -228,7 +228,10 @@ the server only ever reads `dist/`.
 
 ## Not built yet
 
-Phase 4 (hybrid FTS5 + `sqlite-vec` retrieval behind a tool), Phase 5
+Phase 4 (hybrid FTS5 + vector retrieval behind a tool), Phase 5
 (`memory_facts`, the curation pass, the cap, an editing page), Phase 6 (model
 picker and per-session override). The FTS5 index and its triggers already run,
 so search will cover history back to the first message.
+
+Phases 4 and 5 have a guide: `docs/memory.md` — what the schema is already
+waiting for, the order to build it in, and where to stop.
