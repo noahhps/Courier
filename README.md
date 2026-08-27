@@ -1,19 +1,7 @@
-# unified-llm
+# Gantry
 
-One conversation history, one memory, identical from every device. Inference
-runs on your own hardware; the phone and laptop are thin clients that hold no
-durable state.
+One conversation history, one memory. Inference runs on your own hardware; 
 
-Phases 1–3 of the architecture are built: the pipe, persistence, and the PWA.
-Retrieval, memory curation, and the cloud-fallback UI are not.
-
-```
-phone / laptop (PWA)  ────── HTTP on the LAN ──────▶  PC :8080  ──▶  Ollama 127.0.0.1:11434
-                                                    │
-                                                 SQLite (WAL, FTS5)
-```
-
----
 
 ## Running it on the PC
 
