@@ -6,11 +6,13 @@ import asyncio
 import json
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
+from . import attachments as files
 from .attachments import AttachmentError
 from .attachments import decode as decode_attachments
 from .config import Settings, ThinkingLevel
@@ -220,21 +222,48 @@ def build_router(
 
     @router.get("/attachments/{attachment_id}")
     def get_attachment(attachment_id: str) -> Response:
+        """The bytes of one uploaded file.
+
+        Only images are served as themselves. Everything else goes back as an
+        opaque download, whatever it claimed to be on the way in.
+
+        The reason is that this origin holds the bearer token in
+        `localStorage`. A .html file is a legitimate thing to attach and ask
+        about, it was stored with `mime: text/html`, and serving it back with
+        that type and `Content-Disposition: inline` renders it *on this
+        origin* -- so a script inside it reads the token and can then drive
+        the whole API. `X-Content-Type-Options: nosniff` does not help: it
+        stops the browser guessing a different type, and here the declared
+        type was already the dangerous one.
+
+        The UI is unaffected. It fetches attachments with `fetch()` and wraps
+        them in an object URL, and neither the type nor the disposition
+        changes what that produces.
+        """
         attachment = store.get_attachment(attachment_id)
         if not attachment:
             raise HTTPException(404, "no such attachment")
+
+        inline = attachment.kind == "image" and attachment.mime in files.STORABLE_MIMES
+        disposition = "inline" if inline else "attachment"
+        # The filename came from the user and reaches a header here, so it is
+        # percent-encoded rather than quoted -- a quote or a newline in it
+        # would otherwise end the header and start another.
+        disposition += f"; filename*=UTF-8''{quote(attachment.name, safe='')}"
+
         return Response(
             content=attachment.data,
-            media_type=attachment.mime or "application/octet-stream",
+            media_type=attachment.mime if inline else "application/octet-stream",
             headers={
                 # Immutable: an attachment's bytes never change, and its id is
                 # never reused. `private` because this router is authenticated
                 # and the bytes are the user's.
                 "Cache-Control": "private, max-age=31536000, immutable",
-                # Belt and braces against a crafted upload being served back as
-                # something the browser would run.
                 "X-Content-Type-Options": "nosniff",
-                "Content-Disposition": "inline",
+                "Content-Disposition": disposition,
+                # Nothing served from here should ever run script, frame
+                # anything, or reach the network, whatever it turns out to be.
+                "Content-Security-Policy": "default-src 'none'; sandbox",
             },
         )
 
