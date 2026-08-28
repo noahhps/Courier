@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator
 
 from . import attachments as files
 from .config import Settings, ThinkingLevel
+from .memory import MEMORY_DEFAULTS
 from .providers import (
     Chunk,
     ContextOverflow,
@@ -89,14 +90,49 @@ class Orchestrator:
 
     # -- prompt assembly --------------------------------------------------
 
-    def build_system_prompt(self) -> str:
-        """Static preamble, first and unchanging.
+    def build_system_prompt(self) -> tuple[str, list[str]]:
+        """The preamble, then whatever is remembered. Returns (prompt, fact ids).
 
-        Curated memory facts will be appended *after* this string in phase 5,
-        precisely so that editing memory invalidates as little of the cached
-        prefix as possible.
+        Facts come *after* the static preamble, never before or inside it: the
+        preamble is the cacheable prefix, and appending means editing memory
+        invalidates only the tail rather than every request that follows.
+
+        They are ordered pinned-first then oldest-first, which is stable across
+        turns. `updated_at` would have been the obvious sort and is wrong here
+        -- reinforcing a fact would reshuffle the list and throw away the cache
+        for a change nobody made.
+
+        The ids come back so the caller can record that these were used without
+        this method reaching for the clock or writing a row; it is called while
+        assembling a prompt, and a prompt builder that writes to the database
+        is a prompt builder you cannot call twice.
         """
-        return self.settings.system_preamble
+        preamble = self.settings.system_preamble
+        if not self._memory_enabled():
+            return preamble, []
+
+        facts = self.store.active_facts(limit=self.settings.memory_max_facts)
+        if not facts:
+            return preamble, []
+
+        lines = "\n".join(
+            f"- {fact.text[: self.settings.memory_fact_chars]}" for fact in facts
+        )
+        return (
+            f"{preamble}\n\n"
+            "What you already know about the user, from previous "
+            f"conversations:\n{lines}",
+            [fact.id for fact in facts],
+        )
+
+    def _memory_enabled(self) -> bool:
+        """The "Remember between chats" switch, checked where it matters.
+
+        Enforced here as well as in the curation pass: a switch that only stops
+        new facts being written, while the ones already stored keep arriving in
+        every prompt, has not turned anything off.
+        """
+        return self.store.get_settings(MEMORY_DEFAULTS)["memory.between_chats"]
 
     def build_window(
         self,
@@ -104,6 +140,7 @@ class Orchestrator:
         attached: dict[str, list[StoredAttachment]] | None = None,
         *,
         budget: int | None = None,
+        system: str | None = None,
     ) -> list[Message]:
         """Most recent turns that fit the budget, oldest-first.
 
@@ -117,7 +154,14 @@ class Orchestrator:
         """
         attached = attached or {}
         budget = budget or (self.settings.context_tokens - self.settings.reply_tokens)
-        budget -= estimate_tokens(self.build_system_prompt())
+        # Built once. It used to be called twice here -- to charge the budget
+        # and again to build the message -- which was free while it was an
+        # attribute read and is two queries now that memory is in it. Worse,
+        # the two calls could disagree if a fact were edited between them,
+        # charging the window for a prompt it did not send.
+        if system is None:
+            system, _ = self.build_system_prompt()
+        budget -= estimate_tokens(system)
 
         # Which images ride along is decided first, newest backwards, so the
         # cost of a turn reflects what will actually be sent with it.
@@ -138,7 +182,7 @@ class Orchestrator:
             used += cost
         selected.reverse()
 
-        window = [Message(role="system", content=self.build_system_prompt())]
+        window = [Message(role="system", content=system)]
         window.extend(_to_message(m, attached.get(m.id, ()), carried) for m in selected)
         return window
 
@@ -173,7 +217,12 @@ class Orchestrator:
         history = self.store.list_messages(session_id)
         # Bytes, not just names: this is the one call that needs them.
         stored_files = self.store.attachments_for_session(session_id, with_data=True)
-        window = self.build_window(history, stored_files)
+        system, fact_ids = self.build_system_prompt()
+        window = self.build_window(history, stored_files, system=system)
+        # One batched update, not one statement per fact per turn. This is what
+        # "12 answers" under a fact on the memory page is counting, and what
+        # keeps an unused inferred fact fading rather than lingering forever.
+        self.store.mark_facts_used(fact_ids)
 
         assistant = self.store.add_message(
             session_id,

@@ -1,8 +1,9 @@
 /* Illustration content for the screens whose backend does not exist yet.
  *
- * The Memory and Skills screens come from the design canvas, and the server
- * has no endpoint behind either of them: `memory_facts` has not been written,
- * the `chunks` table is empty, and the tool registry is still four stub files.
+ * The Memory screen no longer appears here: `memory_facts`, `/api/memory` and
+ * the chunk index all exist now, and everything that page shows comes from the
+ * server. What remains is the Skills screen's second tier -- suggestions and
+ * usage history, which nothing yet records.
  *
  * Every unbacked value in the UI is imported from here and from nowhere else.
  * That is the point of the module -- when the endpoints land, this file is the
@@ -14,63 +15,6 @@
  */
 
 export const PLACEHOLDER = true;
-
-export const FACTS = [
-  {
-    id: "f1",
-    text: "Rents a two-bed flat in **Leeds**; tenancy started March 2026.",
-    from: "told",
-    confidence: 1,
-    when: "4 Jul",
-    used: "12 answers",
-    pinned: true,
-  },
-  {
-    id: "f2",
-    text: "Boiler reported broken **8 July**, still unrepaired.",
-    from: "inferred",
-    confidence: 0.62,
-    when: "2 min ago",
-    check: true,
-  },
-  {
-    id: "f3",
-    text: "Wants the short answer first, detail only if asked.",
-    from: "told",
-    confidence: 1,
-    when: "19 Jun",
-  },
-];
-
-export const FADING = {
-  text: "Looking for a plumber this week",
-  note: "I'll let this fade once the job's done",
-};
-
-export const FACT_FILTERS = ["All", "Home", "How I answer", "People", "Fading"];
-
-export const CORPORA = [
-  {
-    id: "c1",
-    name: "Moving house",
-    count: 7,
-    tint: "#8f8ede",
-    note: "Tenancy agreement, 2 emails, photos of the boiler",
-  },
-  {
-    id: "c2",
-    name: "Everything else",
-    count: 41,
-    tint: "#c9d3cc",
-    note: "Only you can see these · never used for training",
-  },
-];
-
-export const MEMORY_SETTINGS = [
-  { id: "between", label: "Remember between chats", on: true },
-  { id: "confirm", label: "Ask before saving anything", on: true },
-  { id: "share", label: "Share across projects", on: false },
-];
 
 export const PENDING_SKILLS = [
   {

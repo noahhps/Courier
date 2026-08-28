@@ -164,6 +164,91 @@ MIGRATIONS: list[str] = [
     ALTER TABLE messages ADD COLUMN reasoning TEXT;
     ALTER TABLE messages ADD COLUMN skills TEXT;
     """,
+    # 6 -- memory: what is remembered on purpose, and the keyword half of
+    # what can be looked up.
+    #
+    # `memory_facts` is the short curated list the model sees on every turn,
+    # as distinct from the history it can search. A fact is a sentence, it
+    # came from somewhere, and it can be wrong -- hence `source`, `confidence`
+    # and a `status` that lets one be held back until a human agrees with it.
+    #
+    # `message_id` is provenance, and it is the one foreign key in this schema
+    # that does NOT cascade. Everywhere else deleting a session takes its
+    # contents with it, which is right for messages, attachments and chunks:
+    # they *are* the conversation. A fact is not. "Prefers the short answer
+    # first" was learned during some conversation but is not about it, and
+    # tidying the sidebar in September must not silently change how the
+    # assistant writes in October. The link goes null; the fact stays.
+    """
+    CREATE TABLE memory_facts (
+      id            TEXT PRIMARY KEY,
+      text          TEXT NOT NULL,
+      category      TEXT,
+      source        TEXT NOT NULL,                       -- told | inferred
+      confidence    REAL NOT NULL DEFAULT 1.0,           -- 1.0 when told
+      pinned        INTEGER NOT NULL DEFAULT 0,
+      status        TEXT NOT NULL DEFAULT 'active',      -- active | pending
+      message_id    TEXT REFERENCES messages(id) ON DELETE SET NULL,
+      used_count    INTEGER NOT NULL DEFAULT 0,
+      last_used_at  INTEGER,
+      created_at    INTEGER NOT NULL,
+      updated_at    INTEGER NOT NULL
+    );
+
+    -- The one query that runs on every single turn: active facts, pinned
+    -- first, in a stable order.
+    CREATE INDEX idx_facts_active ON memory_facts(status, pinned DESC, created_at);
+
+    -- The curation pass will propose "Lives in Leeds" on four separate
+    -- occasions. Let SQLite refuse the duplicate: an ON CONFLICT that bumps
+    -- updated_at turns the second sighting into a fact being reinforced,
+    -- which is the correct reading of it and costs one clause.
+    CREATE UNIQUE INDEX idx_facts_text ON memory_facts(text);
+
+    -- Small key/value store for preferences that are user data rather than
+    -- deployment configuration -- the three switches on the Memory page, and
+    -- eventually the per-skill on/off that `Registry.set_enabled` currently
+    -- forgets on every restart.
+    CREATE TABLE app_settings (
+      key    TEXT PRIMARY KEY,
+      value  TEXT NOT NULL
+    );
+
+    -- Keyword search over chunks, mirroring messages_fts over messages.
+    --
+    -- Both halves of retrieval have to return the same kind of key or their
+    -- rankings cannot be combined, and the vector half only ever returns
+    -- chunks. This also reaches something messages_fts structurally cannot:
+    -- the text of an attachment, which has no message row and so has never
+    -- been in that index at all.
+    --
+    -- messages_fts stays exactly as it is. It is the right index for browsing
+    -- whole conversations, which wants messages rather than fragments.
+    CREATE VIRTUAL TABLE chunks_fts USING fts5(
+      content,
+      content='chunks',
+      content_rowid='rowid'
+    );
+
+    CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
+      INSERT INTO chunks_fts(rowid, content) VALUES (new.rowid, new.content);
+    END;
+
+    CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
+      INSERT INTO chunks_fts(chunks_fts, rowid, content)
+        VALUES ('delete', old.rowid, old.content);
+    END;
+
+    -- Only the text matters to the index, and the column that actually
+    -- changes after insert is `embedding`. Rewriting the FTS row on every
+    -- embedding write would be one delete and one insert per chunk during a
+    -- backfill, for no change in what is indexed.
+    CREATE TRIGGER chunks_au AFTER UPDATE OF content ON chunks BEGIN
+      INSERT INTO chunks_fts(chunks_fts, rowid, content)
+        VALUES ('delete', old.rowid, old.content);
+      INSERT INTO chunks_fts(rowid, content) VALUES (new.rowid, new.content);
+    END;
+    """,
 ]
 
 

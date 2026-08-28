@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -12,6 +14,9 @@ from pydantic import BaseModel, Field, model_validator
 from .attachments import AttachmentError
 from .attachments import decode as decode_attachments
 from .config import Settings, ThinkingLevel
+from .memory import MEMORY_DEFAULTS
+from .memory.facts import Curator
+from .memory.indexer import Indexer
 from .orchestrator import Orchestrator
 from .providers import ProviderRouter
 from .store import Store
@@ -55,6 +60,35 @@ class SkillToggle(BaseModel):
     enabled: bool
 
 
+class FactIn(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    category: str | None = Field(default=None, max_length=80)
+    pinned: bool = False
+
+
+class FactPatch(BaseModel):
+    """Every field optional -- this backs Edit, Keep always, and Looks right?,
+    and each of those touches exactly one of them."""
+
+    text: str | None = Field(default=None, min_length=1, max_length=2000)
+    category: str | None = Field(default=None, max_length=80)
+    pinned: bool | None = None
+    status: str | None = Field(default=None, pattern="^(active|pending)$")
+
+
+class MemorySettingsIn(BaseModel):
+    # A subset is allowed: the page sends the one switch that moved.
+    between_chats: bool | None = None
+    confirm: bool | None = None
+    share: bool | None = None
+
+
+class ForgetAll(BaseModel):
+    # Named rather than a bare POST, so nothing forgets everything by
+    # accident -- a stray request to this path should do nothing at all.
+    confirm: bool = False
+
+
 class RenameRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
@@ -66,6 +100,8 @@ def build_router(
     auth,
     registry: Registry,
     settings: Settings,
+    indexer: Indexer,
+    curator: Curator,
 ) -> APIRouter:
     router = APIRouter(dependencies=[Depends(auth)])
 
@@ -141,8 +177,11 @@ def build_router(
                 if await request.is_disconnected():
                     break
                 yield frame
-            # Titling is off the response path but shouldn't outlive the process.
+            # Both off the response path, and both deliberately after the
+            # stream has finished rather than inside it: the answer is already
+            # on its way to the phone, and neither of these should delay it.
             asyncio.create_task(_title_quietly(session_id))
+            asyncio.create_task(_remember_quietly(session_id))
 
         return StreamingResponse(
             frames(), media_type="text/event-stream", headers=SSE_HEADERS
@@ -153,6 +192,29 @@ def build_router(
             await orchestrator.ensure_title(session_id)
         except Exception as exc:  # a missing title must never break a turn
             print(f"[title] {session_id}: {exc}")
+
+    async def _remember_quietly(session_id: str) -> None:
+        """Index the turn that just finished, then curate on a cadence.
+
+        Wrapped like titling and for the same reason: this runs after a turn
+        that already succeeded, and a failure here must never be able to
+        retract an answer the user has already read.
+
+        Indexing first. The curation pass may not run this turn, but the
+        chunks should exist either way -- and if the switch is off, neither
+        happens and the history simply stays unindexed.
+        """
+        settings_now = store.get_settings(MEMORY_DEFAULTS)
+        if not settings_now["memory.between_chats"]:
+            return
+        try:
+            await indexer.catch_up(session_id)
+        except Exception as exc:
+            print(f"[memory] indexing {session_id}: {exc}")
+        try:
+            await curator.run(session_id, confirm=settings_now["memory.confirm"])
+        except Exception as exc:
+            print(f"[memory] curating {session_id}: {exc}")
 
     # -- attachments ------------------------------------------------------
 
@@ -219,6 +281,118 @@ def build_router(
             filename=candidate.name,
             headers={"Cache-Control": "private, no-store"},
         )
+
+    # -- memory -----------------------------------------------------------
+
+    def _settings_out() -> dict:
+        stored = store.get_settings(MEMORY_DEFAULTS)
+        # Stripped of the "memory." prefix on the way out: the namespace is an
+        # implementation detail of a table shared with other features.
+        return {key.split(".", 1)[1]: value for key, value in stored.items()}
+
+    @router.get("/memory")
+    def get_memory() -> dict:
+        """Everything the memory page renders, in one call.
+
+        Raw storage shapes -- `source`, `created_at`, `used_count`. The server
+        never emits "4 Jul" or "12 answers": those are a rendering decision,
+        they are locale-dependent, and the export below wants the numbers.
+        """
+        return {
+            "facts": [fact.to_dict() for fact in store.list_facts()],
+            "settings": _settings_out(),
+            "corpora": store.attachment_summary(),
+            # What recall can actually see, so "searchable once retrieval
+            # lands" can become a number rather than a promise.
+            "index": {**store.chunk_counts(), "model": indexer.model},
+        }
+
+    @router.post("/memory")
+    def add_fact(body: FactIn) -> dict:
+        fact = store.add_fact(
+            body.text[: settings.memory_fact_chars],
+            source="told",
+            category=body.category,
+            pinned=body.pinned,
+        )
+        if fact is None:
+            raise HTTPException(409, "That is already remembered, word for word.")
+        return fact.to_dict()
+
+    @router.delete("/memory/{fact_id}")
+    def forget_fact(fact_id: str) -> dict:
+        if not store.delete_fact(fact_id):
+            raise HTTPException(404, "There is no such fact -- it may already be gone.")
+        return {"ok": True}
+
+    @router.post("/memory/forget-all")
+    def forget_everything(body: ForgetAll) -> dict:
+        if not body.confirm:
+            raise HTTPException(
+                400, "Forgetting everything needs confirm: true in the request."
+            )
+        return {"forgotten": store.delete_all_facts()}
+
+    @router.patch("/memory/settings")
+    def set_memory_settings(body: MemorySettingsIn) -> dict:
+        store.set_settings(
+            {
+                f"memory.{name}": value
+                for name, value in body.model_dump(exclude_none=True).items()
+            }
+        )
+        return _settings_out()
+
+    @router.get("/memory/export")
+    def export_memory() -> Response:
+        """Everything remembered, as a file. Facts only.
+
+        The conversation history is not in here: it is far larger, it is
+        already backed up by copying the database, and a download button that
+        silently produced months of transcripts would be a surprise.
+        """
+        payload = {
+            "exported_at": int(time.time() * 1000),
+            "settings": _settings_out(),
+            "facts": [fact.to_dict() for fact in store.list_facts()],
+        }
+        return Response(
+            content=json.dumps(payload, indent=2, ensure_ascii=False),
+            media_type="application/json",
+            headers={
+                "Content-Disposition": 'attachment; filename="memory.json"',
+                "Cache-Control": "private, no-store",
+            },
+        )
+
+    @router.post("/memory/reindex")
+    async def reindex() -> dict:
+        """Chunk and embed everything not yet covered.
+
+        The same call the turn loop makes, over the whole history rather than
+        one session. It exists as a button because the first run after this
+        feature lands has months to get through, and the alternative is asking
+        someone to open a Python shell.
+        """
+        try:
+            return await indexer.catch_up()
+        except Exception as exc:
+            raise HTTPException(500, f"Indexing failed: {exc}") from exc
+
+    # Declared after every literal path under /memory. A path parameter
+    # matches anything, so "/memory/settings" reaching this route first is
+    # how PATCHing a switch turns into "no such fact".
+    @router.patch("/memory/{fact_id}")
+    def edit_fact(fact_id: str, body: FactPatch) -> dict:
+        if not store.update_fact(
+            fact_id,
+            text=body.text[: settings.memory_fact_chars] if body.text else None,
+            category=body.category,
+            pinned=body.pinned,
+            status=body.status,
+        ):
+            raise HTTPException(404, "There is no such fact -- it may already be gone.")
+        return {"ok": True}
 
     # -- status -----------------------------------------------------------
 

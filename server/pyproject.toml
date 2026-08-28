@@ -17,11 +17,18 @@ dependencies = [
     # Windows ships no system timezone database, so zoneinfo cannot resolve
     # an IANA name without this. Harmless everywhere else.
     "tzdata>=2024.1",
+    # Memory. Retrieval scores a few thousand chunk vectors per search, which
+    # is one matmul here and a slow Python loop without it. Imported lazily by
+    # `memory.embedding`, so an environment that predates this line degrades to
+    # keyword-only recall rather than failing to boot.
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
 # Cloud fallback. Not needed for a purely local install.
 cloud = ["anthropic>=0.69"]
+# `pip install -e "./server[dev]"`, then `pytest` from server/.
+dev = ["pytest>=8.0"]
 
 [project.scripts]
 unified-llm = "app.__main__:main"
