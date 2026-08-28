@@ -34,7 +34,11 @@ class Registry:
         would be no way to switch them back on.
         """
         for name, skill in self._skills.items():
-            if skill.enabled:
+            # Both conditions. `enabled` is the reader's choice and `available`
+            # is whether it could work at all -- offering the model a search
+            # skill with no API key behind it produces a tool call that can
+            # only fail, and the model has no way to know why.
+            if skill.enabled and skill.available:
                 yield name, skill
 
     def set_enabled(self, name: str, enabled: bool) -> bool:

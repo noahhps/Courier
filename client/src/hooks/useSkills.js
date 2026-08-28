@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { ApiError } from "../lib/api";
+
 /**
  * The skills the server has registered. Server-owned; this only mirrors it.
  *
@@ -22,7 +24,12 @@ export function useSkills(api) {
       setError(null);
     } catch (problem) {
       // Shown as written: the server's refusals are already sentences.
-      setError(problem.message || String(problem));
+      setError({
+          message: problem.message || String(problem),
+          // An ApiError means the server answered and said no; anything else
+          // means it was never reached. Same red box, different sentence.
+          answered: problem instanceof ApiError,
+        });
     } finally {
       setLoading(false);
     }
@@ -37,7 +44,12 @@ export function useSkills(api) {
         setSkills(data.skills || []);
         setError(null);
       } catch (problem) {
-        if (live) setError(problem.message || String(problem));
+        if (live) setError({
+          message: problem.message || String(problem),
+          // An ApiError means the server answered and said no; anything else
+          // means it was never reached. Same red box, different sentence.
+          answered: problem instanceof ApiError,
+        });
       } finally {
         if (live) setLoading(false);
       }
@@ -69,7 +81,12 @@ export function useSkills(api) {
         setSkills((prev) =>
           prev.map((s) => (s.name === name ? { ...s, enabled: !enabled } : s)),
         );
-        setError(problem.message || String(problem));
+        setError({
+          message: problem.message || String(problem),
+          // An ApiError means the server answered and said no; anything else
+          // means it was never reached. Same red box, different sentence.
+          answered: problem instanceof ApiError,
+        });
       } finally {
         setPending((prev) => prev.filter((n) => n !== name));
       }
@@ -77,5 +94,31 @@ export function useSkills(api) {
     [api],
   );
 
-  return { skills, loading, error, refresh, setEnabled, pending };
+  const setKey = useCallback(
+    async (name, key) => {
+      setPending((prev) => [...prev, name]);
+      try {
+        await api.setSkillKey(name, key);
+        setError(null);
+        // Refetch rather than patch: saving a key changes `available`, and may
+        // change `enabled` too when the server turns a skill off because its
+        // key was cleared. The server is the one that knows.
+        await refresh();
+        return true;
+      } catch (problem) {
+        setError({
+          message: problem.message || String(problem),
+          // An ApiError means the server answered and said no; anything else
+          // means it was never reached. Same red box, different sentence.
+          answered: problem instanceof ApiError,
+        });
+        return false;
+      } finally {
+        setPending((prev) => prev.filter((n) => n !== name));
+      }
+    },
+    [api, refresh],
+  );
+
+  return { skills, loading, error, refresh, setEnabled, setKey, pending };
 }

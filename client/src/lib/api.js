@@ -95,14 +95,44 @@ export function createApi(token, onUnauthorized = () => {}) {
     request,
     status: () => json("/status"),
     listSkills: () => json("/skills"),
+    listEvents: (since, until) =>
+      json(`/events?since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`),
+    createEvent: (event) =>
+      json("/events", { method: "POST", body: JSON.stringify(event) }),
+    deleteEvent: (id) => request("/events/" + encodeURIComponent(id), { method: "DELETE" }),
+    setSkillKey: (name, key) =>
+      json("/skills/" + encodeURIComponent(name) + "/key", {
+        method: "PUT",
+        body: JSON.stringify({ key }),
+      }),
     setSkillEnabled: (name, enabled) =>
       json("/skills/" + encodeURIComponent(name), {
         method: "PATCH",
         body: JSON.stringify({ enabled }),
       }),
     listSessions: () => json("/sessions"),
+    listProjects: () => json("/projects"),
+    createProject: (name) =>
+      json("/projects", { method: "POST", body: JSON.stringify({ name }) }),
+    renameProject: (id, name) =>
+      json("/projects/" + encodeURIComponent(id), {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      }),
+    deleteProject: (id) =>
+      json("/projects/" + encodeURIComponent(id), { method: "DELETE" }),
+    setSessionProject: (sessionId, projectId) =>
+      json("/sessions/" + encodeURIComponent(sessionId) + "/project", {
+        method: "PUT",
+        body: JSON.stringify({ project_id: projectId }),
+      }),
     getSession: (id) => json("/sessions/" + id),
     deleteSession: (id) => request("/sessions/" + id, { method: "DELETE" }),
+    deleteSessions: (ids) =>
+      json("/sessions/delete", {
+        method: "POST",
+        body: JSON.stringify({ ids, confirm: true }),
+      }),
     // Resolves to the raw response -- the caller drives it with readEvents().
     // `provider` is "local", "cloud", or null for whatever the router picks.
     // Never switch silently -- the server records which one answered and the

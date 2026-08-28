@@ -18,6 +18,7 @@ from .memory.facts import Curator
 from .memory.indexer import Indexer
 from .orchestrator import Orchestrator
 from .providers import ProviderRouter
+from .skills.calendar import AddEvent, FindEvents, ListEvents
 from .skills.clock import Clock
 from .skills.document import DocumentWriter
 from .skills.recall import Recall
@@ -62,6 +63,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     curator = Curator(settings, store, providers)
     registry = Registry()
     registry.register(Clock())
+    registry.register(AddEvent(store))
+    registry.register(ListEvents(store))
+    registry.register(FindEvents(store))
     registry.register(DocumentWriter(settings.documents_dir))
     # Registered unconditionally, unlike web search: these need no key, and an
     # empty history is a valid answer rather than a broken tool.
@@ -72,12 +76,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # itself and then refused would be the same failure as a system prompt
     # promising a tool the request never declares: the model spends the turn
     # reaching for something that was never there.
-    if settings.search_api_key:
-        registry.register(
-            WebSearch(settings.search_api_key, endpoint=settings.search_endpoint)
-        )
-    else:
-        print("[skills] SEARCH_API_KEY unset -- web_search not offered")
+    # Registered whether or not there is a key. Without one it is listed as
+    # needing configuration and never offered to the model -- `Registry.enabled`
+    # checks `available` as well as `enabled`. Hiding it entirely was worse:
+    # the capability existed and nothing on screen said so.
+    web_search = WebSearch(settings.search_api_key, endpoint=settings.search_endpoint)
+    registry.register(web_search)
     orchestrator = Orchestrator(settings, store, providers, registry)
 
     @asynccontextmanager

@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Composer } from "./components/Composer";
+import { Calendar } from "./components/Calendar";
 import { Memory } from "./components/Memory";
 import { MessageList } from "./components/MessageList";
 import { NavRail } from "./components/NavRail";
@@ -13,6 +14,7 @@ import { Starters } from "./components/Starters";
 import { TokenGate } from "./components/TokenGate";
 import { TopBar } from "./components/TopBar";
 import { useChat } from "./hooks/useChat";
+import { useProjects } from "./hooks/useProjects";
 import { useRailWidth } from "./hooks/useRailWidth";
 import { useSessions } from "./hooks/useSessions";
 import { UnauthorizedError, createApi } from "./lib/api";
@@ -81,6 +83,9 @@ export default function App() {
   );
 
   const sessions = useSessions(api);
+  // After `api`, not before it: hooks run in source order, and reading `api`
+  // above its own `const` is a temporal dead zone error that blanks the page.
+  const projects = useProjects(api);
   const { refresh } = sessions;
   const onSessionsChanged = useCallback(() => {
     refresh().catch(() => {});
@@ -202,6 +207,15 @@ export default function App() {
           railWidth={rail.width}
           onTogglePin={togglePin}
           sessions={sessions.sessions}
+          projects={projects.projects}
+          onNewProject={(name) => projects.create(name)}
+          onDeleteProject={async (id) => {
+            await projects.remove(id);
+            // The chats did not go anywhere, but their project_id did -- the
+            // rail would keep showing them under a folder that no longer
+            // exists until the session list is re-read.
+            await onSessionsChanged();
+          }}
           activeId={chat.sessionId}
           onOpenSession={handleOpenSession}
           onNewSession={handleNewSession}
@@ -226,6 +240,16 @@ export default function App() {
               <TopBar
                 title={chat.title}
                 badge={chat.badge}
+                projects={projects.projects}
+                canFile={Boolean(chat.sessionId)}
+                projectId={
+                  sessions.sessions.find((s) => s.id === chat.sessionId)?.project_id ||
+                  null
+                }
+                onProject={async (projectId) => {
+                  await api.setSessionProject(chat.sessionId, projectId);
+                  await onSessionsChanged();
+                }}
                 onNewSession={handleNewSession}
               />
 
@@ -240,6 +264,13 @@ export default function App() {
                 focusToken={focusToken}
                 draft={draft}
                 sessionLabel={chat.sessionId ? chat.title : null}
+                // Whichever side is actually answering describes its own
+                // reasoning control; the composer draws what it is handed.
+                thinking={
+                  (provider === "cloud" || status?.serving === "cloud"
+                    ? status?.cloud?.thinking
+                    : status?.local?.thinking) || null
+                }
                 onSend={chat.send}
               />
 
@@ -247,6 +278,8 @@ export default function App() {
                 <Starters onPick={(text) => setDraft({ text })} />
               ) : null}
             </>
+          ) : view === "calendar" ? (
+            <Calendar api={api} onSessionsChanged={onSessionsChanged} />
           ) : view === "memory" ? (
             <Memory api={api} />
           ) : view === "skills" ? (
@@ -258,6 +291,9 @@ export default function App() {
               onProvider={setProvider}
               pinned={railPinned}
               onTogglePin={togglePin}
+              api={api}
+              sessions={sessions.sessions}
+              onSessionsChanged={onSessionsChanged}
               onSignOut={() => signOut("")}
             />
           )}

@@ -9,7 +9,9 @@ class Skill(ABC):
     whether this is the right tool -- and a `use` that does the work.
     """
 
-    def __init__(self, *, name: str, description: str, parameters = None):
+    def __init__(
+        self, *, name: str, description: str, parameters=None, requires: str | None = None
+    ):
         self.name = name;
         self.description = description;
         self.parameters = parameters or {"type": "object", "properties": {}};
@@ -17,6 +19,23 @@ class Skill(ABC):
         # not offered to the model. Lives on the instance rather than in the
         # registry so a skill handed around on its own still knows.
         self.enabled = True
+        # What this skill still needs before it can run, in words a person can
+        # act on -- "a Brave Search API key" -- or None when it needs nothing.
+        # Listed either way: a capability you cannot see is one you never go
+        # looking for, and "why is there no web search?" has no answer on a
+        # screen that simply omits it.
+        self.requires = requires
+
+    @property
+    def available(self) -> bool:
+        """Whether this skill could run right now.
+
+        Distinct from `enabled`, which is the reader's choice. A skill can be
+        switched on and still unavailable -- a key was removed since -- and the
+        two have to be told apart or the Skills page cannot explain itself.
+        Subclasses that need configuration override this.
+        """
+        return True
 
     @abstractmethod
     async def use(self, **kwargs) -> str:

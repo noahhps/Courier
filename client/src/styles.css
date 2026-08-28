@@ -690,6 +690,32 @@ svg {
 .navrail-section:hover { color: var(--ink); }
 .navrail-chevron { margin-left: auto; font-size: var(--t-sm); line-height: 1; }
 
+/* A project's fold, and the chats inside it. Indented so the nesting is
+   visible without a second colour or a rule -- the list is already dense. */
+.navrail-project { display: flex; flex-direction: column; }
+.navrail-project > ul { padding-left: 10px; }
+.navrail-count { margin-left: auto; padding-right: 8px; }
+.navrail-project-delete {
+  align-self: flex-start;
+  padding: 3px 10px 7px;
+  color: var(--text-faint);
+}
+.navrail-project-delete:hover { color: var(--accent); }
+
+/* Filing the open conversation, in the top bar. */
+.topbar-project { display: flex; align-items: center; gap: 7px; flex: none; }
+.topbar-project select {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-surface);
+  background: var(--surface);
+  font: 400 var(--t-sm)/1.2 var(--font);
+  color: var(--ink);
+  outline: none;
+  max-width: 150px;
+}
+.topbar-project select:focus { border-color: var(--accent); }
+
 .navrail-new {
   display: block;
   width: 100%;
@@ -1401,6 +1427,197 @@ svg {
 .send svg { width: 15px; height: 15px; }
 .send:disabled { opacity: 0.35; cursor: default; }
 
+/* The budget slider, for a model that takes a token count rather than a word.
+   A real range: the value is continuous, and which third of the track it sits
+   in is the thing being chosen. */
+.budget {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.budget input[type="range"] {
+  width: 92px;
+  accent-color: var(--accent);
+}
+.budget output { font-variant-numeric: tabular-nums; min-width: 2.4em; }
+
+/* -- calendar -------------------------------------------------------------- */
+
+.cal { display: flex; flex-direction: column; gap: 4px; }
+
+.cal-head,
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.cal-head span { padding: 0 0 2px 4px; }
+
+.cal-day {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  /* Fixed, not aspect-ratio: six rows of a square cell is taller than most
+     windows, and the grid has to fit beside the day list below it. */
+  min-height: 82px;
+  padding: 6px 6px 5px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-surface);
+  background: var(--surface);
+  text-align: left;
+  overflow: hidden;
+}
+.cal-day:hover { border-color: var(--line-firm); }
+/* Days either side of the month stay legible but recede -- they are context,
+   not targets, though they are still clickable. */
+.cal-day[data-outside] { background: none; color: var(--text-faint); }
+.cal-day[data-today] .cal-date { color: var(--accent); font-weight: 700; }
+.cal-day[data-picked] { border-color: var(--accent); }
+
+.cal-date { font: 500 var(--t-sm)/1 var(--font); }
+
+.cal-chip {
+  font: 400 var(--t-xs)/1.35 var(--font);
+  background: var(--violet-field);
+  color: var(--ink);
+  border-radius: 2px;
+  padding: 1px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cal-more { padding-left: 2px; }
+
+.cal-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.cal-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-surface);
+  background: var(--surface);
+}
+.cal-when { flex: none; min-width: 4.4em; font-variant-numeric: tabular-nums; }
+.cal-title { font: 400 var(--t-md)/1.4 var(--font); }
+.cal-notes { flex: 1; color: var(--text-faint); font-size: var(--t-sm); }
+.cal-del { margin-left: auto; color: var(--text-faint); padding: 0 4px; }
+.cal-del:hover { color: var(--alarm, var(--accent)); }
+
+.cal-add { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.cal-add input[type="text"] { flex: 1; }
+.cal-add input {
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-surface);
+  background: var(--surface);
+  font: 400 var(--t-md)/1.3 var(--font);
+  color: var(--ink);
+  outline: none;
+}
+.cal-add input:focus { border-color: var(--accent); }
+
+/* -- the calendar's own conversation --------------------------------------- */
+
+.sidechat { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+
+.sidechat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 180px;
+  max-height: 46vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-surface);
+  background: var(--surface);
+}
+.sidechat-empty { margin: 0; color: var(--text-faint); font-size: var(--t-sm); }
+
+.sidechat-turn {
+  font: 400 var(--t-sm)/1.55 var(--font);
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.sidechat-turn[data-role="user"] {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--rail);
+  border-radius: var(--r-bubble);
+  padding: 7px 10px;
+}
+.sidechat-turn[data-role="error"] { color: var(--ochre); }
+
+.sidechat-form { display: flex; gap: 8px; align-items: center; }
+.sidechat-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  font: 400 var(--t-md)/1.3 var(--font);
+  color: var(--ink);
+  outline: none;
+}
+.sidechat-form input:focus { border-color: var(--accent); }
+
+/* -- bulk conversation management, on Settings ----------------------------- */
+
+.manage { display: flex; flex-direction: column; gap: 10px; }
+
+.manage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-surface);
+  background: var(--surface);
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.manage-list li { border-bottom: 1px solid var(--line-soft); }
+.manage-list li:last-child { border-bottom: 0; }
+
+.manage-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 13px;
+  cursor: pointer;
+}
+.manage-row:hover { background: var(--rail); }
+.manage-row input { accent-color: var(--accent); flex: none; }
+.manage-title {
+  flex: 1;
+  min-width: 0;
+  font: 400 var(--t-md)/1.4 var(--font);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.manage-actions { display: flex; gap: 9px; flex-wrap: wrap; }
+
+.manage-confirm { display: flex; flex-direction: column; gap: 5px; }
+.manage-confirm input {
+  padding: 9px 12px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-surface);
+  background: var(--surface);
+  font: 400 var(--t-md)/1.3 var(--font);
+  color: var(--ink);
+  outline: none;
+}
+.manage-confirm input:focus { border-color: var(--accent); }
+
 /* The reasoning selector reads as one more chip in the row. */
 .effort { display: flex; align-items: center; gap: 4px; }
 .effort button {
@@ -1639,6 +1856,26 @@ svg {
 /* Switched off: dimmed, but never hidden -- the row is the only way back on. */
 .skill-item[data-off] .skill-item-text { opacity: 0.55; }
 .skill-item .switch:disabled { opacity: 0.5; cursor: default; }
+
+/* A skill that is listed but not yet usable. */
+.skill-needs { display: flex; align-items: baseline; gap: 9px; margin-top: 6px; }
+.skill-needs .mi { color: var(--ochre); }
+.skill-needs button.mi { color: var(--accent); }
+.skill-needs button.mi:hover { color: var(--accent-hover); }
+
+.skill-key { display: flex; gap: 8px; margin-top: 8px; }
+.skill-key input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 11px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-surface);
+  background: var(--surface);
+  font: 400 var(--t-sm)/1.3 var(--font-mono);
+  color: var(--ink);
+  outline: none;
+}
+.skill-key input:focus { border-color: var(--accent); }
 
 .search { margin-bottom: 4px; }
 .search input {

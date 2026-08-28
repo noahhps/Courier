@@ -10,12 +10,68 @@ import { useSkills } from "../hooks/useSkills";
  * of examples any more.
  */
 
-function Row({ skill, busy, onToggle }) {
+function Row({ skill, busy, onToggle, onKey }) {
+  const [key, setKey] = useState("");
+  const [open, setOpen] = useState(false);
+  const blocked = skill.requires && !skill.available;
+
+  const save = async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    if (await onKey(skill.name, key.trim())) {
+      setKey("");
+      setOpen(false);
+    }
+  };
+
   return (
     <div className="skill-item" data-off={skill.enabled ? undefined : ""}>
       <div className="skill-item-text">
         <span className="h">{skill.name}</span>
         <p className="skill-body">{skill.description}</p>
+
+        {/* Listed either way, and told plainly why it cannot be switched on.
+            A capability you cannot see is one you never go looking for. */}
+        {blocked ? (
+          <div className="skill-needs">
+            <span className="mi">Needs {skill.requires}</span>
+            <button type="button" className="mi" onClick={() => setOpen((was) => !was)}>
+              {open ? "cancel" : "add key"}
+            </button>
+          </div>
+        ) : null}
+
+        {skill.configurable && skill.available ? (
+          <div className="skill-needs">
+            <span className="mi">Key saved</span>
+            <button
+              type="button"
+              className="mi"
+              disabled={busy}
+              onClick={() => onKey(skill.name, "")}
+            >
+              remove
+            </button>
+          </div>
+        ) : null}
+
+        {open && blocked ? (
+          <form className="skill-key" onSubmit={save}>
+            <input
+              type="password"
+              value={key}
+              autoFocus
+              autoComplete="off"
+              spellCheck="false"
+              placeholder="Paste the key"
+              aria-label={`${skill.requires} for ${skill.name}`}
+              onChange={(event) => setKey(event.target.value)}
+            />
+            <button type="submit" className="btnp" disabled={!key.trim() || busy}>
+              {busy ? "Checking…" : "Save"}
+            </button>
+          </form>
+        ) : null}
       </div>
       <button
         type="button"
@@ -24,7 +80,10 @@ function Row({ skill, busy, onToggle }) {
         aria-checked={skill.enabled}
         aria-label={`${skill.enabled ? "Disable" : "Enable"} ${skill.name}`}
         aria-pressed={skill.enabled}
-        disabled={busy}
+        // Locked until it could actually run. The server refuses this too --
+        // the disabled attribute is the explanation, not the enforcement.
+        disabled={busy || blocked}
+        title={blocked ? `Needs ${skill.requires} first` : undefined}
         onClick={() => onToggle(skill.name, !skill.enabled)}
       >
         <i />
@@ -34,7 +93,8 @@ function Row({ skill, busy, onToggle }) {
 }
 
 export function Skills({ api }) {
-  const { skills, loading, error, refresh, setEnabled, pending } = useSkills(api);
+  const { skills, loading, error, refresh, setEnabled, setKey, pending } =
+    useSkills(api);
   const [query, setQuery] = useState("");
 
   // Name and description both, so "time" finds a clock skill that never says
@@ -101,11 +161,11 @@ export function Skills({ api }) {
           {error ? (
             <div className="callout" data-tint="ochre">
               <div style={{ flex: 1 }}>
-                <span className="h" style={{ fontSize: "17px" }}>
-                  Could not reach the server
+                <span className="h" style={{ fontSize: "var(--t-lg)" }}>
+                  {error.answered ? "That did not work" : "Could not reach the server"}
                 </span>
-                <p style={{ margin: "7px 0 0", color: "var(--text-dim)", fontSize: "12.5px", lineHeight: 1.7 }}>
-                  {error}
+                <p style={{ margin: "7px 0 0", color: "var(--text-dim)", fontSize: "var(--t-sm)", lineHeight: 1.7 }}>
+                  {error.message}
                 </p>
               </div>
               <button type="button" className="btn" onClick={refresh}>
@@ -140,6 +200,7 @@ export function Skills({ api }) {
                   skill={skill}
                   busy={pending.includes(skill.name)}
                   onToggle={setEnabled}
+                  onKey={setKey}
                 />
               ))}
             </div>

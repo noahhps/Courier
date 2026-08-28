@@ -156,6 +156,33 @@ class StoredFact:
         }
 
 
+@dataclass
+class StoredEvent:
+    id: str
+    title: str
+    starts_at: str
+    ends_at: str | None
+    all_day: int
+    notes: str | None
+    tz: str | None
+    session_id: str | None
+    created_at: int
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "starts_at": self.starts_at,
+            "ends_at": self.ends_at,
+            # int in SQLite, bool everywhere it is read.
+            "all_day": bool(self.all_day),
+            "notes": self.notes,
+            "tz": self.tz,
+            "session_id": self.session_id,
+            "created_at": self.created_at,
+        }
+
+
 class Store:
     def __init__(self, db: Database) -> None:
         self.db = db
@@ -174,7 +201,7 @@ class Store:
     def list_sessions(self, limit: int = 200) -> list[dict]:
         rows = self.db.query(
             """
-            SELECT s.id, s.title, s.created_at, s.updated_at,
+            SELECT s.id, s.title, s.created_at, s.updated_at, s.project_id,
                    (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count
             FROM sessions s
             ORDER BY s.updated_at DESC
@@ -824,6 +851,137 @@ class Store:
             )
         return summary
 
+    # -- calendar ---------------------------------------------------------
+
+    def add_event(
+        self,
+        title: str,
+        starts_at: str,
+        *,
+        ends_at: str | None = None,
+        all_day: bool = False,
+        notes: str | None = None,
+        tz: str | None = None,
+        session_id: str | None = None,
+    ) -> StoredEvent:
+        event = StoredEvent(
+            id=_new_id("evt"),
+            title=title,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            all_day=1 if all_day else 0,
+            notes=notes,
+            tz=tz,
+            session_id=session_id,
+            created_at=_now(),
+        )
+        self.db.execute(
+            """
+            INSERT INTO calendar_events
+                (id, title, starts_at, ends_at, all_day, notes, tz, session_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.id, event.title, event.starts_at, event.ends_at,
+                event.all_day, event.notes, event.tz, event.session_id,
+                event.created_at,
+            ),
+        )
+        return event
+
+    def list_events(
+        self, *, since: str | None = None, until: str | None = None, limit: int = 500
+    ) -> list[StoredEvent]:
+        """Events in a half-open range, soonest first.
+
+        The bounds are compared as strings, which works because the format is
+        fixed-width ISO-8601 -- lexicographic order is chronological order for
+        'YYYY-MM-DDTHH:MM' and nothing else has to parse a date to filter.
+        `until` is exclusive so a month query is [first, first-of-next) with no
+        arithmetic about how long the month is.
+        """
+        clauses, params = [], []
+        if since:
+            clauses.append("starts_at >= ?")
+            params.append(since)
+        if until:
+            clauses.append("starts_at < ?")
+            params.append(until)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(
+            f"SELECT * FROM calendar_events {where} ORDER BY starts_at, rowid LIMIT ?",
+            (*params, limit),
+        )
+        return [StoredEvent(**dict(row)) for row in rows]
+
+    def search_events(self, needle: str, limit: int = 50) -> list[StoredEvent]:
+        """Substring match on title and notes.
+
+        Not FTS: the calendar is small enough that a LIKE scan is instant, and
+        a second FTS table would have to be kept in step by triggers for a
+        table that will never hold thousands of rows.
+        """
+        like = f"%{needle}%"
+        rows = self.db.query(
+            """
+            SELECT * FROM calendar_events
+             WHERE title LIKE ? OR COALESCE(notes, '') LIKE ?
+             ORDER BY starts_at, rowid LIMIT ?
+            """,
+            (like, like, limit),
+        )
+        return [StoredEvent(**dict(row)) for row in rows]
+
+    def get_event(self, event_id: str) -> StoredEvent | None:
+        row = self.db.query_one("SELECT * FROM calendar_events WHERE id = ?", (event_id,))
+        return StoredEvent(**dict(row)) if row else None
+
+    def delete_event(self, event_id: str) -> None:
+        self.db.execute("DELETE FROM calendar_events WHERE id = ?", (event_id,))
+
+    # -- projects ---------------------------------------------------------
+
+    def create_project(self, name: str) -> dict:
+        project_id = _new_id("prj")
+        now = _now()
+        self.db.execute(
+            "INSERT INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            (project_id, name, now, now),
+        )
+        return {"id": project_id, "name": name, "created_at": now, "updated_at": now}
+
+    def list_projects(self) -> list[dict]:
+        rows = self.db.query(
+            """
+            SELECT p.id, p.name, p.created_at, p.updated_at,
+                   (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id)
+                       AS session_count
+            FROM projects p
+            ORDER BY p.name COLLATE NOCASE
+            """
+        )
+        return [dict(row) for row in rows]
+
+    def get_project(self, project_id: str) -> dict | None:
+        row = self.db.query_one("SELECT * FROM projects WHERE id = ?", (project_id,))
+        return dict(row) if row else None
+
+    def rename_project(self, project_id: str, name: str) -> None:
+        self.db.execute(
+            "UPDATE projects SET name = ?, updated_at = ? WHERE id = ?",
+            (name, _now(), project_id),
+        )
+
+    def delete_project(self, project_id: str) -> None:
+        # The conversations survive -- the foreign key is ON DELETE SET NULL,
+        # so they reappear as unfiled rather than vanishing with the folder.
+        self.db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+
+    def set_session_project(self, session_id: str, project_id: str | None) -> None:
+        """File a conversation, or unfile it with None."""
+        self.db.execute(
+            "UPDATE sessions SET project_id = ? WHERE id = ?", (project_id, session_id)
+        )
 
 def _fts_query(text: str) -> str:
     """A user's sentence as an FTS5 MATCH expression.

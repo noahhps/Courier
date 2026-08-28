@@ -27,6 +27,7 @@ const LIST_KEY = "unified-llm-rail-list-open";
 
 const DESTINATIONS = [
   { id: "chat", label: "Chat" },
+  { id: "calendar", label: "Calendar" },
   { id: "memory", label: "Memory" },
   { id: "skills", label: "Skills" },
 ];
@@ -45,6 +46,37 @@ function Label({ label }) {
   );
 }
 
+/* One conversation, wherever it is filed. Pulled out because it is now
+   rendered twice -- inside a project, and under Conversations for the ones
+   that are not in any -- and two copies of a delete confirmation is exactly
+   how the two drift apart. */
+function SessionRows({ sessions, activeId, onOpenSession, onDelete, empty }) {
+  if (sessions.length === 0) {
+    return (
+      <li data-empty="true">
+        <span className="navrail-empty">{empty}</span>
+      </li>
+    );
+  }
+  return sessions.map((session) => (
+    <li key={session.id} data-active={String(session.id === activeId)}>
+      <button className="navrail-session" onClick={() => onOpenSession(session.id)}>
+        {session.title || "Untitled"}
+      </button>
+      <button
+        className="navrail-session-delete"
+        aria-label={`Delete ${session.title || "Untitled"}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (confirm("Delete this conversation?")) onDelete(session.id);
+        }}
+      >
+        ×
+      </button>
+    </li>
+  ));
+}
+
 export function NavRail({
   view,
   onView,
@@ -59,6 +91,9 @@ export function NavRail({
   onResizeKey,
   railWidth,
   sessions,
+  projects,
+  onNewProject,
+  onDeleteProject,
   activeId,
   onOpenSession,
   onNewSession,
@@ -70,6 +105,9 @@ export function NavRail({
   const [listOpen, setListOpen] = useState(
     () => localStorage.getItem(LIST_KEY) !== "0",
   );
+  // Which projects are unfolded. A Set in state rather than a flag per
+  // project, so adding a project needs no new state.
+  const [openProjects, setOpenProjects] = useState(() => new Set());
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -188,33 +226,86 @@ export function NavRail({
                   + New conversation
                 </button>
 
-                <ul id="navrail-session-list" hidden={!listOpen}>
-                  {sessions.map((session) => (
-                    <li key={session.id} data-active={String(session.id === activeId)}>
-                      <button
-                        className="navrail-session"
-                        onClick={() => onOpenSession(session.id)}
-                      >
-                        {session.title || "Untitled"}
-                      </button>
-                      <button
-                        className="navrail-session-delete"
-                        aria-label={`Delete ${session.title || "Untitled"}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (confirm("Delete this conversation?")) onDelete(session.id);
-                        }}
-                      >
-                        ×
-                      </button>
-                    </li>
-                  ))}
-                  {sessions.length === 0 ? (
-                    <li data-empty="true">
-                      <span className="navrail-empty">Nothing yet</span>
-                    </li>
-                  ) : null}
-                </ul>
+                {/* Projects first, each one a fold of its own, then the
+                    conversations that are in no project. A chat filed into a
+                    project appears only there -- listing it twice would make
+                    the counts lie. */}
+                <div hidden={!listOpen}>
+                  {projects.map((project) => {
+                    const mine = sessions.filter((s) => s.project_id === project.id);
+                    const unfolded = openProjects.has(project.id);
+                    return (
+                      <div key={project.id} className="navrail-project">
+                        <button
+                          type="button"
+                          className="navrail-section"
+                          aria-expanded={unfolded}
+                          onClick={() =>
+                            setOpenProjects((was) => {
+                              const next = new Set(was);
+                              next.has(project.id)
+                                ? next.delete(project.id)
+                                : next.add(project.id);
+                              return next;
+                            })
+                          }
+                        >
+                          <span>{project.name}</span>
+                          <span className="navrail-count mi">{mine.length}</span>
+                          <span className="navrail-chevron" aria-hidden="true">
+                            {unfolded ? "⌄" : "›"}
+                          </span>
+                        </button>
+                        <ul hidden={!unfolded}>
+                          <SessionRows
+                            sessions={mine}
+                            activeId={activeId}
+                            onOpenSession={onOpenSession}
+                            onDelete={onDelete}
+                            empty="Nothing filed here"
+                          />
+                        </ul>
+                        <button
+                          type="button"
+                          className="navrail-project-delete mi"
+                          hidden={!unfolded}
+                          onClick={() => {
+                            if (
+                              confirm(
+                                `Delete the project "${project.name}"? Its conversations are kept and become unfiled.`,
+                              )
+                            ) {
+                              onDeleteProject(project.id);
+                            }
+                          }}
+                        >
+                          delete project
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  <ul id="navrail-session-list">
+                    <SessionRows
+                      sessions={sessions.filter((s) => !s.project_id)}
+                      activeId={activeId}
+                      onOpenSession={onOpenSession}
+                      onDelete={onDelete}
+                      empty="Nothing yet"
+                    />
+                  </ul>
+
+                  <button
+                    type="button"
+                    className="navrail-new"
+                    onClick={() => {
+                      const name = prompt("Name for the new project");
+                      if (name && name.trim()) onNewProject(name.trim());
+                    }}
+                  >
+                    + New project
+                  </button>
+                </div>
               </div>
             </div>
           </div>

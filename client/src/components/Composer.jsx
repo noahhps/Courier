@@ -3,7 +3,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { StagedAttachments } from "./Attachments";
 import { Icon } from "./Icon";
 
-const EFFORTS = ["low", "medium", "high"];
 
 /**
  * The composer from artboard 1a: one rounded box, the text on its own line,
@@ -13,9 +12,107 @@ const EFFORTS = ["low", "medium", "high"];
  * The design has no sliders in it, and three named states read faster than a
  * track with an output label under it.
  */
-export function Composer({ disabled, focusToken, draft, sessionLabel, onSend }) {
+/* The reasoning control, drawn from whatever the live model actually takes.
+ *
+ * Four shapes, because the families disagree about what "think harder" even
+ * is -- an effort word, a switch, a token budget, or nothing. The server says
+ * which on /status; nothing here knows a model name, so pulling a new model
+ * changes the control without a client release. */
+// What to draw when /status says nothing about thinking at all. That means an
+// older server, which took `ThinkingLevel` and nothing else -- so the effort
+// chips are its correct control, not a guess. Distinct from a server that
+// answers "none", which is a real answer about a model that cannot reason and
+// must draw nothing.
+const LEGACY = {
+  mode: "effort",
+  options: ["low", "medium", "high"],
+  default: "medium",
+  label: "Effort",
+};
+
+function ThinkingControl({ control, value, onChange, disabled }) {
+  const mode = control?.mode || "none";
+  if (mode === "none") return null;
+
+  if (mode === "effort") {
+    return (
+      <div className="effort" role="group" aria-label={control.label}>
+        {(control.options || []).map((level) => (
+          <button
+            key={level}
+            type="button"
+            aria-pressed={value === level}
+            disabled={disabled}
+            onClick={() => onChange(level)}
+          >
+            {level}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  if (mode === "switch") {
+    return (
+      <button
+        type="button"
+        className="chip"
+        role="switch"
+        aria-checked={value === true}
+        data-on={value === true ? "true" : undefined}
+        disabled={disabled}
+        onClick={() => onChange(value === true ? false : true)}
+      >
+        {control.label}
+      </button>
+    );
+  }
+
+  // budget: a real range, because the value is continuous and the useful part
+  // is how far along it sits, not which of three words it is.
+  return (
+    <label className="budget">
+      <span className="mi">{control.label}</span>
+      <input
+        type="range"
+        min={control.min}
+        max={control.max}
+        step={control.step}
+        value={typeof value === "number" ? value : control.default}
+        disabled={disabled}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+      <output className="mi">
+        {Math.round((typeof value === "number" ? value : control.default) / 1024)}k
+      </output>
+    </label>
+  );
+}
+
+export function Composer({
+  disabled,
+  focusToken,
+  draft,
+  sessionLabel,
+  thinking,
+  onSend,
+}) {
   const [value, setValue] = useState("");
-  const [effort, setEffort] = useState("medium");
+  // Whatever the current control's value is. Reset when the control changes
+  // shape, because "medium" means nothing to a switch and `true` means nothing
+  // to a budget -- carrying it across would send the model a value it cannot
+  // read.
+  const [effort, setEffort] = useState(null);
+  // An absent descriptor is not the same as "none" -- see LEGACY above.
+  const control = thinking || LEGACY;
+  const mode = control.mode;
+  useEffect(() => {
+    setEffort(control.default);
+    // Keyed on the mode, not the object: a re-fetch of /status hands back a
+    // fresh object with identical contents, and depending on identity would
+    // throw away the reader's choice each time one arrived.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
   // Picked but not sent. Each carries its own key because two files can have
   // the same name, and an object URL for images so the thumbnail costs nothing
   // -- revoked on removal and on send, or the previews leak.
@@ -198,19 +295,12 @@ export function Composer({ disabled, focusToken, draft, sessionLabel, onSend }) 
 
           <div className="spacer" />
 
-          <div className="effort" role="group" aria-label="Reasoning effort">
-            {EFFORTS.map((level) => (
-              <button
-                key={level}
-                type="button"
-                aria-pressed={effort === level}
-                disabled={disabled}
-                onClick={() => setEffort(level)}
-              >
-                {level}
-              </button>
-            ))}
-          </div>
+          <ThinkingControl
+            control={control}
+            value={effort}
+            onChange={setEffort}
+            disabled={disabled}
+          />
 
           <button type="submit" className="send" aria-label="Send" disabled={disabled}>
             <Icon name="send" />

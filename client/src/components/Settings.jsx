@@ -7,11 +7,22 @@
  * Everything on this screen is real. It is the one screen added in this
  * redesign that needs no `unbacked` banner.
  */
+import { ManageChats } from "./ManageChats";
 import { useState } from "react";
 
 import { autoSaveEnabled, setAutoSave } from "./SkillTrace";
 
-export function Settings({ status, provider, onProvider, pinned, onTogglePin, onSignOut }) {
+export function Settings({
+  status,
+  provider,
+  onProvider,
+  pinned,
+  onTogglePin,
+  onSignOut,
+  api,
+  sessions,
+  onSessionsChanged,
+}) {
   const [autoSave, setAutoSaveState] = useState(autoSaveEnabled);
 
   const rows = [
@@ -50,58 +61,6 @@ export function Settings({ status, provider, onProvider, pinned, onTogglePin, on
 
       <div className="page-body">
         <div className="page-col">
-          <div className="lane">
-            <span className="mi" data-strong>
-              Connection
-            </span>
-            <i />
-            <span className="mi">
-              {status?.serving === "none" ? "nothing reachable" : `serving ${status?.serving}`}
-            </span>
-          </div>
-
-          {rows.map((row) => (
-            <div key={row.id} className="sur corpus">
-              <div className="corpus-top">
-                <i style={{ background: row.ok ? "var(--green)" : "rgba(20,23,29,.18)" }} />
-                <span>{row.name}</span>
-                <span className="mi">{row.detail}</span>
-              </div>
-              {row.note ? <p>{row.note}</p> : null}
-            </div>
-          ))}
-
-          <div className="lane" style={{ marginTop: "6px" }}>
-            <span className="mi" data-strong>
-              Answer with
-            </span>
-            <i />
-          </div>
-          <div className="filters">
-            {[
-              { id: null, label: "Auto" },
-              { id: "local", label: "Local" },
-              { id: "cloud", label: "Cloud" },
-            ].map((choice) => (
-              <button
-                key={choice.id || "auto"}
-                type="button"
-                className="chip"
-                data-on={provider === choice.id ? "" : undefined}
-                onClick={() => onProvider(choice.id)}
-              >
-                {choice.label}
-              </button>
-            ))}
-          </div>
-          <p className="caveat" style={{ margin: 0 }}>
-            Auto uses the local model and falls back to the cloud only when it
-            cannot be reached. Choosing between the models Ollama has pulled
-            needs a server endpoint that does not exist yet.
-          </p>
-        </div>
-
-        <div className="page-side">
           <div className="lane">
             <span className="mi" data-strong>
               This app
@@ -152,6 +111,15 @@ export function Settings({ status, provider, onProvider, pinned, onTogglePin, on
             </div>
           </div>
 
+          {/* Bulk management sits above sign-out: both are the destructive
+              end of the page, and the one that actually destroys something
+              should not be below the one that does not. */}
+          <ManageChats
+            api={api}
+            sessions={sessions}
+            onDeleted={onSessionsChanged}
+          />
+
           <div className="callout" data-tint="ochre">
             <p>
               <b>Signing out</b> forgets the token on this device only. Your
@@ -169,6 +137,59 @@ export function Settings({ status, provider, onProvider, pinned, onTogglePin, on
               Sign out
             </button>
           </div>
+        </div>
+
+        <div className="page-side">
+          <div className="lane">
+            <span className="mi" data-strong>
+              Connection
+            </span>
+            <i />
+            <span className="mi">
+              {status?.serving === "none" ? "nothing reachable" : `serving ${status?.serving}`}
+            </span>
+          </div>
+
+          {rows.map((row) => (
+            <div key={row.id} className="sur corpus">
+              <div className="corpus-top">
+                <i style={{ background: row.ok ? "var(--green)" : "rgba(20,23,29,.18)" }} />
+                <span>{row.name}</span>
+                <span className="mi">{row.detail}</span>
+              </div>
+              {row.note ? <p>{row.note}</p> : null}
+            </div>
+          ))}
+
+          <div className="lane" style={{ marginTop: "6px" }}>
+            <span className="mi" data-strong>
+              Answer with
+            </span>
+            <i />
+          </div>
+          <div className="filters">
+            {[
+              { id: null, label: "Auto" },
+              { id: "local", label: "Local" },
+              { id: "cloud", label: "Cloud" },
+            ].map((choice) => (
+              <button
+                key={choice.id || "auto"}
+                type="button"
+                className="chip"
+                data-on={provider === choice.id ? "" : undefined}
+                onClick={() => onProvider(choice.id)}
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
+          <p className="caveat" style={{ margin: 0 }}>
+            Auto uses the local model and falls back to the cloud only when it
+            cannot be reached. Choosing between the models Ollama has pulled
+            needs a server endpoint that does not exist yet.
+          </p>
+
         </div>
       </div>
     </div>

@@ -71,10 +71,25 @@ class WebSearch(Skill):
                 },
                 "required": ["query"],
             },
+            requires="a Brave Search API key",
         )
         self.api_key = api_key
         self.endpoint = endpoint or "https://api.search.brave.com/res/v1/web/search"
         self.results = results
+
+    @property
+    def available(self) -> bool:
+        return bool(self.api_key)
+
+    def set_api_key(self, key: str) -> None:
+        """Swap the key in without a restart.
+
+        The registry holds one instance for the life of the process, so the
+        alternative is asking someone to restart the server after pasting a
+        key into a settings page -- which is the kind of step that makes a
+        feature feel broken even when it works.
+        """
+        self.api_key = (key or "").strip()
 
     async def use(self, query: str, count: int | None = None) -> str:
         query = (query or "").strip()

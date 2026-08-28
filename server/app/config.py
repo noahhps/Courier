@@ -129,6 +129,14 @@ class Settings:
     # A Brave Search key (free tier, no card) unless SEARCH_ENDPOINT points
     # somewhere else that answers in the same shape.
     search_api_key: str = field(default_factory=lambda: _env("SEARCH_API_KEY", ""))
+    # Where a key pasted into the Skills page is kept. Beside the bearer token,
+    # for the same reason: it is a secret that has to survive a restart, and
+    # `data/` is already the directory nothing commits.
+    search_key_path: Path = field(
+        default_factory=lambda: Path(
+            _env("SEARCH_KEY_PATH", str(REPO_ROOT / "data" / "search_key"))
+        )
+    )
     search_endpoint: str = field(default_factory=lambda: _env("SEARCH_ENDPOINT", ""))
 
     # Rough working-context budget in tokens. The window builder trims to fit;
@@ -180,6 +188,30 @@ class Settings:
     )
 
 
+def read_search_key(path: Path) -> str:
+    """The saved key, or empty. Never raises -- a missing file is the normal
+    state before anyone has pasted one in."""
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def write_search_key(path: Path, key: str) -> None:
+    """Persist or clear the key. Empty clears the file rather than writing a
+    blank one, so the state on disk matches the state in memory."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    key = (key or "").strip()
+    if not key:
+        path.unlink(missing_ok=True)
+        return
+    path.write_text(key, encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass  # Windows; ACLs are the user's problem there
+
+
 def load_settings() -> Settings:
     settings = Settings()
     if not settings.auth_token:
@@ -187,6 +219,12 @@ def load_settings() -> Settings:
         settings = Settings(**{**settings.__dict__, "auth_token": token})
         
     settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+    # The environment wins: someone who exported SEARCH_API_KEY meant it, and
+    # a stale file should not quietly override this run.
+    if not settings.search_api_key:
+        saved = read_search_key(settings.search_key_path)
+        if saved:
+            settings = Settings(**{**settings.__dict__, "search_api_key": saved})
     return settings
 
 

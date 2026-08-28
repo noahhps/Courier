@@ -249,6 +249,56 @@ MIGRATIONS: list[str] = [
       INSERT INTO chunks_fts(rowid, content) VALUES (new.rowid, new.content);
     END;
     """,
+    # 7 -- the calendar.
+    #
+    # Times are stored as an ISO-8601 local string, not an epoch: an event is
+    # "Tuesday at 9" to the person who made it, and that is still 9am after a
+    # daylight-saving change or a flight. Storing an instant and rendering it
+    # back would silently move a standing meeting by an hour twice a year.
+    # `tz` records where it was written so a display can say so if it ever
+    # needs to; nothing computes with it yet.
+    #
+    # `all_day` rather than a null time, so a date-only event is a deliberate
+    # kind rather than a missing field the reader has to interpret.
+    """
+    CREATE TABLE calendar_events (
+      id          TEXT PRIMARY KEY,
+      title       TEXT NOT NULL,
+      starts_at   TEXT NOT NULL,        -- 'YYYY-MM-DDTHH:MM' local
+      ends_at     TEXT,                 -- NULL for a point in time
+      all_day     INTEGER NOT NULL DEFAULT 0,
+      notes       TEXT,
+      tz          TEXT,
+      -- Which conversation asked for it, when a skill made it. NULL when a
+      -- person added it by hand. ON DELETE SET NULL: deleting a chat must not
+      -- take next week's dentist appointment with it.
+      session_id  TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+      created_at  INTEGER NOT NULL
+    );
+
+    -- Every read is a date range, so the index is on the sort key.
+    CREATE INDEX idx_events_start ON calendar_events(starts_at);
+    """,
+    # 8 -- projects: a folder holding conversations.
+    #
+    # ON DELETE SET NULL, not CASCADE. A project is a way of grouping chats,
+    # not a container that owns them -- deleting the folder should file its
+    # conversations back under "no project", never destroy months of them.
+    # Deleting conversations is what the Settings page is for, where it is
+    # gated behind typing the word.
+    """
+    CREATE TABLE projects (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL
+    );
+
+    ALTER TABLE sessions ADD COLUMN project_id TEXT
+      REFERENCES projects(id) ON DELETE SET NULL;
+
+    CREATE INDEX idx_sessions_project ON sessions(project_id, updated_at);
+    """,
 ]
 
 

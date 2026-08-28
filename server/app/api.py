@@ -13,7 +13,8 @@ from pydantic import BaseModel, Field, model_validator
 
 from .attachments import AttachmentError
 from .attachments import decode as decode_attachments
-from .config import Settings, ThinkingLevel
+from .config import Settings, ThinkingLevel, write_search_key
+from .thinking import control_for
 from .memory import MEMORY_DEFAULTS
 from .memory.facts import Curator
 from .memory.indexer import Indexer
@@ -45,9 +46,14 @@ class ChatRequest(BaseModel):
     # "local" | "cloud" | None (auto). Never switch silently -- the client
     # asks for a specific provider or accepts whatever the router picks.
     provider: str | None = None
-    # gpt-oss accepts a reasoning effort, rather than a true/false switch.
-    # None leaves the server's OLLAMA_THINK default in charge.
-    think: ThinkingLevel | None = None
+    # Three shapes, because the families disagree: an effort word for gpt-oss,
+    # a switch for deepseek and qwen, a token budget for Claude. Which one is
+    # valid is a property of the live model, and /status says which -- so this
+    # accepts any of them. None leaves the configured default in charge.
+    #
+    # bool before ThinkingLevel matters: Pydantic tries a union in order, and
+    # `str` would happily swallow a JSON `true`.
+    think: bool | ThinkingLevel | int | None = None
 
     @model_validator(mode="after")
     def _not_empty(self) -> "ChatRequest":
@@ -58,6 +64,12 @@ class ChatRequest(BaseModel):
 
 class SkillToggle(BaseModel):
     enabled: bool
+
+
+class SkillKey(BaseModel):
+    # Empty clears it. Not `min_length=1`, because "remove my key" is a thing
+    # someone will want and a separate endpoint for it would be ceremony.
+    key: str = Field(default="", max_length=400)
 
 
 class FactIn(BaseModel):
@@ -89,8 +101,43 @@ class ForgetAll(BaseModel):
     confirm: bool = False
 
 
+class BulkDelete(BaseModel):
+    """Delete several conversations at once.
+
+    `confirm` is the same guard `ForgetAll` uses: a stray POST to this path
+    with a list of ids and nothing else does nothing. The typed word lives in
+    the UI, where the person is -- a server that demanded a magic string would
+    be checking that the client is polite, not that the request is intended.
+    """
+
+    ids: list[str] = Field(min_length=1, max_length=500)
+    confirm: bool = False
+
+
+class EventIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    # Validated by shape here and by meaning in the skill: the client sends
+    # what its own date picker produced, so a bad string is a bug rather than
+    # a model guessing.
+    starts_at: str = Field(min_length=10, max_length=16)
+    ends_at: str | None = Field(default=None, max_length=16)
+    all_day: bool = False
+    notes: str | None = Field(default=None, max_length=2000)
+
+
 class RenameRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
+
+
+class ProjectIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class SessionProject(BaseModel):
+    # None files the conversation back under no project. Explicitly nullable
+    # rather than an absent field, so "unfile this" is a thing the client can
+    # say rather than something it has to express by omission.
+    project_id: str | None = None
 
 
 def build_router(
@@ -144,6 +191,84 @@ def build_router(
     @router.delete("/sessions/{session_id}")
     def delete_session(session_id: str) -> dict:
         store.delete_session(session_id)
+        return {"ok": True}
+
+    @router.post("/sessions/delete")
+    def delete_sessions(body: BulkDelete) -> dict:
+        if not body.confirm:
+            raise HTTPException(400, "bulk delete needs confirm: true")
+        # Counted against what was actually there, so the caller learns that an
+        # id it asked about had already gone rather than being told it deleted
+        # something it did not.
+        deleted = 0
+        for session_id in body.ids:
+            if store.get_session(session_id):
+                store.delete_session(session_id)
+                deleted += 1
+        return {"deleted": deleted, "requested": len(body.ids)}
+
+    # -- projects ---------------------------------------------------------
+
+    @router.get("/projects")
+    def list_projects() -> dict:
+        return {"projects": store.list_projects()}
+
+    @router.post("/projects")
+    def create_project(body: ProjectIn) -> dict:
+        return store.create_project(body.name.strip())
+
+    @router.patch("/projects/{project_id}")
+    def rename_project(project_id: str, body: ProjectIn) -> dict:
+        if not store.get_project(project_id):
+            raise HTTPException(404, "no such project")
+        store.rename_project(project_id, body.name.strip())
+        return {"ok": True}
+
+    @router.delete("/projects/{project_id}")
+    def delete_project(project_id: str) -> dict:
+        if not store.get_project(project_id):
+            raise HTTPException(404, "no such project")
+        store.delete_project(project_id)
+        # Said out loud in the response, because "delete" on a folder full of
+        # conversations is the kind of thing a caller should not have to read
+        # the schema to be sure about.
+        return {"ok": True, "conversations": "kept, now unfiled"}
+
+    @router.put("/sessions/{session_id}/project")
+    def set_session_project(session_id: str, body: SessionProject) -> dict:
+        if not store.get_session(session_id):
+            raise HTTPException(404, "no such session")
+        if body.project_id and not store.get_project(body.project_id):
+            raise HTTPException(404, "no such project")
+        store.set_session_project(session_id, body.project_id)
+        return {"ok": True, "project_id": body.project_id}
+
+    # -- calendar ---------------------------------------------------------
+
+    @router.get("/events")
+    def list_events(since: str | None = None, until: str | None = None) -> dict:
+        return {
+            "events": [e.to_dict() for e in store.list_events(since=since, until=until)]
+        }
+
+    @router.post("/events")
+    def create_event(body: EventIn) -> dict:
+        if body.ends_at and body.ends_at <= body.starts_at:
+            raise HTTPException(400, "the end has to come after the start")
+        event = store.add_event(
+            body.title.strip(),
+            body.starts_at,
+            ends_at=body.ends_at,
+            all_day=body.all_day or "T" not in body.starts_at,
+            notes=(body.notes or "").strip() or None,
+        )
+        return event.to_dict()
+
+    @router.delete("/events/{event_id}")
+    def delete_event(event_id: str) -> dict:
+        if not store.get_event(event_id):
+            raise HTTPException(404, "no such event")
+        store.delete_event(event_id)
         return {"ok": True}
 
     # -- chat -------------------------------------------------------------
@@ -250,6 +375,11 @@ def build_router(
                     "name": name,
                     "description": skill.description,
                     "enabled": skill.enabled,
+                    # Whether it *could* run, and what it wants if not. The key
+                    # itself is never sent back -- only whether one is set.
+                    "available": skill.available,
+                    "requires": skill.requires,
+                    "configurable": hasattr(skill, "set_api_key"),
                 }
                 for name, skill in registry.all()
             ]
@@ -257,9 +387,60 @@ def build_router(
 
     @router.patch("/skills/{name}")
     def set_skill_enabled(name: str, body: SkillToggle) -> dict:
-        if not registry.set_enabled(name, body.enabled):
+        skill = registry.get(name)
+        if skill is None:
             raise HTTPException(404, f"no skill named {name!r}")
+        # Refused rather than silently accepted: a switch that flips on and
+        # then does nothing is worse than one that says why it will not.
+        if body.enabled and not skill.available:
+            raise HTTPException(
+                400, f"{name} needs {skill.requires or 'configuration'} first"
+            )
+        registry.set_enabled(name, body.enabled)
         return {"name": name, "enabled": body.enabled}
+
+    @router.put("/skills/{name}/key")
+    async def set_skill_key(name: str, body: SkillKey) -> dict:
+        skill = registry.get(name)
+        if skill is None:
+            raise HTTPException(404, f"no skill named {name!r}")
+        if not hasattr(skill, "set_api_key"):
+            raise HTTPException(400, f"{name} takes no key")
+
+        key = body.key.strip()
+        previous = skill.api_key
+        skill.set_api_key(key)
+
+        # Checked against the real service before it is written down. A key
+        # that is wrong by one character otherwise fails on the first search,
+        # a turn later, as an error the model reports rather than the page.
+        if key:
+            try:
+                probe = await skill.use(query="test", count=1)
+            except Exception as exc:  # noqa: BLE001 -- reported, not swallowed
+                skill.set_api_key(previous)
+                raise HTTPException(400, f"could not reach the search API: {exc}") from exc
+            # Allow-list, not a deny-list. Matching on failure phrases meant
+            # guessing which ones the service produces, and Brave answers a
+            # malformed key with 422 rather than 401 -- so "rejected" never
+            # appeared and a junk key was saved as valid. Anything that is not
+            # recognisably an answer is treated as a failure instead.
+            #
+            # A rate limit is the exception: the key is fine, it is the quota
+            # that is not, and refusing to save it would be wrong.
+            lowered = probe.strip().lower()
+            rate_limited = "rate limit" in lowered
+            if lowered.startswith(("the search", "no query")) and not rate_limited:
+                skill.set_api_key(previous)
+                raise HTTPException(400, probe.strip())
+
+        write_search_key(settings.search_key_path, key)
+        # Clearing the key leaves the switch on but the skill unavailable, so
+        # it is turned off here rather than left in a state the page would have
+        # to explain.
+        if not key:
+            registry.set_enabled(name, False)
+        return {"name": name, "configured": bool(key), "available": skill.available}
 
     # -- documents --------------------------------------------------------
 
@@ -405,8 +586,16 @@ def build_router(
                 "healthy": local_ok,
                 "model": providers.local.model,
                 "url": providers.local.base_url,
+                "thinking": control_for("ollama", providers.local.model).to_dict(),
             },
-            "cloud": {"healthy": cloud_ok, "model": providers.cloud.model},
+            # Each side reports the reasoning control its own model takes, so
+            # the composer can redraw when the provider changes rather than
+            # keeping a list of model names in the browser.
+            "cloud": {
+                "healthy": cloud_ok,
+                "model": providers.cloud.model,
+                "thinking": control_for("anthropic", providers.cloud.model).to_dict(),
+            },
             "serving": "local" if local_ok else ("cloud" if cloud_ok else "none"),
             # ADD THIS NEW KEY:
             "default_provider": "local", 
