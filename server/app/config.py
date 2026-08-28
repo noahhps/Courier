@@ -27,6 +27,13 @@ def _env_int(name: str, default: int) -> int:
         return default
     return int(raw)
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    return float(raw)
+
+
 def _env_thinking_level(name: str, default: ThinkingLevel) -> ThinkingLevel:
     """Read the reasoning effort understood by gpt-oss via Ollama."""
     value = _env(name, default).lower()
@@ -75,6 +82,43 @@ class Settings:
         default_factory=lambda: Path(
             _env("DOCUMENTS_DIR", str(REPO_ROOT / "data" / "documents"))
         )
+    )
+
+    # --- memory ----------------------------------------------------------
+    # The encoder behind recall. Pulled separately from the chat model
+    # (`ollama pull nomic-embed-text`); if it is missing, chunks stay
+    # unembedded and search falls back to keywords alone.
+    #
+    # Changing this does not migrate anything. Vectors from different encoders
+    # are not comparable, so `chunks.model` records what made each row and
+    # search filters on it -- an old row simply stops being found until it is
+    # re-embedded.
+    embed_model: str = field(default_factory=lambda: _env("EMBED_MODEL", "nomic-embed-text"))
+
+    # How close a chunk must be to count as a match at all, as cosine
+    # similarity between normalised vectors.
+    #
+    # Encoder-dependent, and worth checking once against your own: ask
+    # something the history definitely does not cover and print the scores. If
+    # anything comes back, this is too low. Too high is the safe direction --
+    # recall falls back to keywords rather than inventing relevance.
+    memory_min_similarity: float = field(
+        default_factory=lambda: _env_float("MEMORY_MIN_SIMILARITY", 0.35)
+    )
+
+    # How many curated facts may ride in the system prompt. They are prepended
+    # to every request, on the same budget the conversation is competing for,
+    # so this is a cap on how much memory is allowed to cost per turn.
+    memory_max_facts: int = field(default_factory=lambda: _env_int("MEMORY_MAX_FACTS", 40))
+    # And how long any one of them may be. A fact is a sentence; anything
+    # longer is a note that belongs in the history, where recall can find it.
+    memory_fact_chars: int = field(default_factory=lambda: _env_int("MEMORY_FACT_CHARS", 200))
+
+    # Turns between curation passes. The pass is a whole extra generation, so
+    # running it every turn doubles the work the GPU does for something nobody
+    # is waiting on. 0 switches it off entirely.
+    memory_extract_every: int = field(
+        default_factory=lambda: _env_int("MEMORY_EXTRACT_EVERY", 5)
     )
 
     # --- web search ------------------------------------------------------

@@ -123,5 +123,38 @@ export function createApi(token, onUnauthorized = () => {}) {
     // A blob, not a URL: the endpoint is authenticated, so the bytes have to
     // come through fetch with the bearer header and be wrapped locally.
     attachment: async (id) => (await request("/attachments/" + id)).blob(),
+
+    // -- memory ---------------------------------------------------------
+    // Facts, switches, document counts and index size arrive together: the
+    // page renders them as one screen, so it fetches them as one call.
+    getMemory: () => json("/memory"),
+    addFact: (text, category = null, pinned = false) =>
+      json("/memory", {
+        method: "POST",
+        body: JSON.stringify({ text, category, pinned }),
+      }),
+    // Only the fields that changed. The server treats every one as optional,
+    // which is what lets Edit, Keep always and Looks right? share a route.
+    editFact: (id, patch) =>
+      json("/memory/" + encodeURIComponent(id), {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    forgetFact: (id) =>
+      request("/memory/" + encodeURIComponent(id), { method: "DELETE" }),
+    forgetAllFacts: () =>
+      json("/memory/forget-all", {
+        method: "POST",
+        body: JSON.stringify({ confirm: true }),
+      }),
+    setMemorySettings: (patch) =>
+      json("/memory/settings", {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    reindexMemory: () => json("/memory/reindex", { method: "POST" }),
+    // A blob for the same reason as an attachment: the route is behind the
+    // bearer token, so a plain link would 401.
+    exportMemory: async () => (await request("/memory/export")).blob(),
   };
 }

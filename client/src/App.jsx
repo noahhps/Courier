@@ -248,7 +248,7 @@ export default function App() {
               ) : null}
             </>
           ) : view === "memory" ? (
-            <Memory />
+            <Memory api={api} />
           ) : view === "skills" ? (
             <Skills api={api} />
           ) : (

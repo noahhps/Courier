@@ -3,10 +3,13 @@
 Written for putting attachments and thinking back, and for adding things that
 were never there. It assumes you are writing the Python yourself.
 
-The removal took out code, not data. `PRAGMA user_version` is still **4**, the
-`attachments` table still holds **5 rows** from before, and `chunks` exists and
-is **empty**. You are not starting from a blank schema — you are writing code to
-meet a schema that is already waiting for it.
+The removal took out code, not data. You are rarely starting from a blank
+schema here — more often you are writing code to meet one that is already
+waiting for it.
+
+`PRAGMA user_version` is **6**. Migrations 1–4 were in place before the code
+that used them; 5 (reasoning and skills on a message) and 6 (memory) have since
+landed with their features.
 
 ---
 
@@ -155,13 +158,13 @@ next feature and the schema is already designed for it.
    call and one branch in `useChat.js`.
 7. **The client last.** Never guess at the server's shape from the client side.
 
-For history search specifically, the sequence is: chunk existing messages →
-embed them (`ollama.embed` already exists and is unused) → store the float32
-blobs → cosine search → expose it as one tool the model can call. Each of those
-is a session's work and each is testable alone.
+History search was the worked example of this template, and it is now built:
+migration 6, `store.py`, the pure modules in `app/memory/`, then one skill and
+one page. **[`memory.md`](memory.md)** documents what it does and why.
 
-That feature, and the curated facts behind the Memory page, are worked through
-step by step in **[`memory.md`](memory.md)**.
+Its first two steps are still the ones to copy: schema, then rows, then a
+module of pure functions you can test in a REPL before anything above it
+exists.
 
 ---
 
@@ -219,11 +222,11 @@ touching a line of React.
 .venv/Scripts/python -c "from app.main import create_app; create_app()"
 ```
 
-**There are no tests.** Not one, anywhere in the project. Before the next
-feature is a good moment: `pip install pytest`, a `server/tests/` directory, and
-start with the pure functions from section 3 step 2 — they need no fixtures, no
-database and no event loop, so the first test is five lines and the habit is
-what matters.
+**Tests start in `server/tests/`.** `pip install -e "./server[dev]"`, then
+`pytest` from `server/`. There are 28, all over the pure functions in
+`app/memory/` — chunking, ranking, FTS escaping, and the fact parser — because
+those need no fixtures, no database and no event loop. Everything else is still
+checked by hand; add to this rather than starting again.
 
 ---
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,11 +14,15 @@ from .api import build_router
 from .auth import make_auth_dependency
 from .config import Settings, load_settings
 from .db import Database
+from .memory.facts import Curator
+from .memory.indexer import Indexer
 from .orchestrator import Orchestrator
 from .providers import ProviderRouter
 from .skills.clock import Clock
 from .skills.document import DocumentWriter
+from .skills.recall import Recall
 from .skills.registry import Registry
+from .skills.remember import Forget, Remember
 from .skills.websearch import WebSearch
 from .store import Store
 
@@ -53,9 +58,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Built fresh each boot: skills are code that ships with the server, so
     # there is nothing to load and nothing to persist. Built *before* the
     # orchestrator, which needs it to tell the model what it can call.
+    indexer = Indexer(settings, store, providers)
+    curator = Curator(settings, store, providers)
     registry = Registry()
     registry.register(Clock())
     registry.register(DocumentWriter(settings.documents_dir))
+    # Registered unconditionally, unlike web search: these need no key, and an
+    # empty history is a valid answer rather than a broken tool.
+    registry.register(Recall(indexer))
+    registry.register(Remember(store, max_chars=settings.memory_fact_chars))
+    registry.register(Forget(store))
     # Registered only when configured. An unconfigured search that announced
     # itself and then refused would be the same failure as a system prompt
     # promising a tool the request never declares: the model spends the turn
@@ -70,17 +82,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # One catch-up at boot, in the background. A server that has just
+        # gained retrieval has every previous conversation to index, and the
+        # alternative is a first search that finds nothing and gives no reason.
+        # It is a task rather than an await because the port should open now,
+        # not after several thousand chunks have been embedded.
+        indexing = asyncio.create_task(_index_quietly())
         yield
+        indexing.cancel()
         await providers.aclose()
         db.close()
+
+    async def _index_quietly() -> None:
+        try:
+            done = await indexer.catch_up()
+            if done["chunked"] or done["embedded"]:
+                print(f"[memory] indexed {done['chunked']} new chunk(s), "
+                      f"embedded {done['embedded']}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # never keep the server from starting
+            print(f"[memory] startup indexing: {exc}")
 
     app = FastAPI(title="unified-llm", lifespan=lifespan)
     app.state.settings = settings
     app.state.db = db
+    # Hung here so the one-liners in docs/memory.md can reach them without
+    # constructing a second app.
+    app.state.store = store
+    app.state.orchestrator = orchestrator
+    app.state.indexer = indexer
 
     auth = make_auth_dependency(settings)
     app.include_router(
-        build_router(store, orchestrator, providers, auth, registry, settings),
+        build_router(
+            store, orchestrator, providers, auth, registry,
+            settings, indexer, curator,
+        ),
         prefix="/api",
     )
 
