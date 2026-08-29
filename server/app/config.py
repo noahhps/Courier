@@ -159,7 +159,7 @@ class Settings:
             # moment a skill is added or switched off. It once said "you have
             # access to a clock tool" while no tools were being sent, and the
             # model spent every turn hunting for a tool it could not see.
-            "You are Marco, a personal assistant running on the user's own "
+            "You are Courier, a personal assistant running on the user's own "
             "hardware. "
             # Scoped to conversation on purpose. This preamble is prepended to
             # every request, so an unqualified "be brief" was also in force
