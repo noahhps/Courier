@@ -216,6 +216,7 @@ export function NavRail({
                     localStorage.setItem(LIST_KEY, next ? "1" : "0");
                   }}
                 >
+                  <Icon name={listOpen ? "chat_bubble" : "chat_bubble_outline"} />
                   <span>Conversations</span>
                   <span className="navrail-chevron" aria-hidden="true">
                     {listOpen ? "⌄" : "›"}
@@ -250,6 +251,12 @@ export function NavRail({
                             })
                           }
                         >
+                          {/* One glyph whatever the fold is doing. The two
+                              folder files differ only by the tab line inside
+                              them, which is gone by 14px -- swapping them
+                              would claim a state the icon cannot show. The
+                              chevron at the far end reports it instead. */}
+                          <Icon name="folder" />
                           <span>{project.name}</span>
                           <span className="navrail-count mi">{mine.length}</span>
                           <span className="navrail-chevron" aria-hidden="true">

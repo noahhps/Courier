@@ -285,6 +285,22 @@ svg {
   stroke-linejoin: round;
 }
 
+/* A file-backed glyph, from the list in Icon.jsx. The artwork is a filled
+   silhouette carrying its own fill colour, so it is used as a mask over
+   `currentColor` rather than drawn: only the shape survives, and the icon
+   inherits the row's colour the way a stroked one does -- including when that
+   row is the accent-filled current destination. Sized to match the `svg` rule
+   above, so the two kinds sit in a row without one looking bigger. */
+.icon-mask {
+  display: inline-block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  background: currentColor;
+  -webkit-mask: var(--mask) center / contain no-repeat;
+  mask: var(--mask) center / contain no-repeat;
+}
+
 .icon-stack { position: relative; display: grid; place-items: center; }
 .icon-badge {
   position: absolute;
@@ -688,6 +704,13 @@ svg {
   white-space: nowrap;
 }
 .navrail-section:hover { color: var(--ink); }
+/* Sized down to the type beside it: 11px of tracked mono under an 18px glyph
+   reads as a caption under an icon rather than as a row. */
+.navrail-section .icon-mask {
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+}
 .navrail-chevron { margin-left: auto; font-size: var(--t-sm); line-height: 1; }
 
 /* A project's fold, and the chats inside it. Indented so the nesting is
@@ -2247,7 +2270,8 @@ svg {
 /* The paperclip is a plus: it adds something, and the row it sits in is chips
    rather than icons, so it needs the same pill as its neighbours. */
 .chip-icon { padding: 6px 9px; }
-.chip-icon svg { width: 14px; height: 14px; }
+.chip-icon svg,
+.chip-icon .icon-mask { width: 14px; height: 14px; }
 
 .lightbox {
   position: fixed;

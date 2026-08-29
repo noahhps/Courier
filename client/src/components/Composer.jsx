@@ -288,7 +288,7 @@ export function Composer({
             disabled={disabled}
             onClick={() => picker.current.click()}
           >
-            <Icon name="plus" />
+            <Icon name="attachment" />
           </button>
 
           {sessionLabel ? <span className="chip">{sessionLabel}</span> : null}
