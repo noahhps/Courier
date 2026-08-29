@@ -27,11 +27,10 @@ The same steps by hand:
 Do this on the machine with the GPU. Everything below assumes Windows with the
 RTX 5070 Ti, but the commands are the same on macOS and Linux.
 
-**1. Pull a model.** A 14B-class dense model at Q4 fits 16 GB with room for a
-32K KV cache:
+**1. Pull a model.**
 
 ```bash
-ollama pull qwen3:14b
+ollama pull gpt-oss
 ```
 
 **2. Build the client.** The UI is a React app; the server serves the build
