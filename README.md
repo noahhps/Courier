@@ -1,6 +1,6 @@
 # Courier
 
-A harness designed to deliver a quality User Xperience on your __own__ hardware!
+A harness designed to deliver a new paradigm of interactions with AI.
 
 
 ## Running it on the PC
