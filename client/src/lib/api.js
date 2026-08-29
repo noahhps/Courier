@@ -111,6 +111,7 @@ export function createApi(token, onUnauthorized = () => {}) {
         body: JSON.stringify({ enabled }),
       }),
     listSessions: () => json("/sessions"),
+    createSession: () => json("/sessions", { method: "POST" }),
     listProjects: () => json("/projects"),
     createProject: (name) =>
       json("/projects", { method: "POST", body: JSON.stringify({ name }) }),

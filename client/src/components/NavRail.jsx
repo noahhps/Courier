@@ -23,10 +23,14 @@ import { ModelMenu } from "./ModelMenu";
  * rules is how one of them ends up forgotten.
  */
 
+const DELETE_WARNING = (name) =>
+  `Delete the project "${name}"? Its conversations are kept and become unfiled.`;
+
 const LIST_KEY = "unified-llm-rail-list-open";
 
 const DESTINATIONS = [
   { id: "chat", label: "Chat" },
+  { id: "projects", label: "Projects" },
   { id: "calendar", label: "Calendar" },
   { id: "memory", label: "Memory" },
   { id: "skills", label: "Skills" },
@@ -59,7 +63,17 @@ function SessionRows({ sessions, activeId, onOpenSession, onDelete, empty }) {
     );
   }
   return sessions.map((session) => (
-    <li key={session.id} data-active={String(session.id === activeId)}>
+    <li
+      key={session.id}
+      data-active={String(session.id === activeId)}
+      draggable
+      onDragStart={(event) => {
+        // A custom type rather than text/plain, so dragging a conversation
+        // over a text field somewhere does not offer to paste an id.
+        event.dataTransfer.setData("text/session", session.id);
+        event.dataTransfer.effectAllowed = "move";
+      }}
+    >
       <button className="navrail-session" onClick={() => onOpenSession(session.id)}>
         {session.title || "Untitled"}
       </button>
@@ -93,7 +107,10 @@ export function NavRail({
   sessions,
   projects,
   onNewProject,
+  onRenameProject,
   onDeleteProject,
+  onNewSessionIn,
+  onFileSession,
   activeId,
   onOpenSession,
   onNewSession,
@@ -108,6 +125,10 @@ export function NavRail({
   // Which projects are unfolded. A Set in state rather than a flag per
   // project, so adding a project needs no new state.
   const [openProjects, setOpenProjects] = useState(() => new Set());
+  // The folder a dragged conversation is currently over, and the folder whose
+  // right-click menu is open. Both are one-at-a-time, so both are a single id.
+  const [dropOver, setDropOver] = useState(null);
+  const [menu, setMenu] = useState(null);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -236,7 +257,36 @@ export function NavRail({
                     const mine = sessions.filter((s) => s.project_id === project.id);
                     const unfolded = openProjects.has(project.id);
                     return (
-                      <div key={project.id} className="navrail-project">
+                      <div
+                        key={project.id}
+                        className="navrail-project"
+                        data-over={dropOver === project.id ? "" : undefined}
+                        onDragOver={(event) => {
+                          if (event.dataTransfer.types.includes("text/session")) {
+                            // Required, or the browser refuses the drop.
+                            event.preventDefault();
+                            setDropOver(project.id);
+                          }
+                        }}
+                        onDragLeave={() =>
+                          setDropOver((was) => (was === project.id ? null : was))
+                        }
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          setDropOver(null);
+                          const id = event.dataTransfer.getData("text/session");
+                          if (id) {
+                            onFileSession(id, project.id);
+                            // Opened, so the conversation is visible where it
+                            // just landed rather than seeming to disappear.
+                            setOpenProjects((was) => new Set(was).add(project.id));
+                          }
+                        }}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          setMenu(menu === project.id ? null : project.id);
+                        }}
+                      >
                         <button
                           type="button"
                           className="navrail-section"
@@ -263,6 +313,49 @@ export function NavRail({
                             {unfolded ? "⌄" : "›"}
                           </span>
                         </button>
+                        {/* Right-click. Kept to the three things you would
+                            otherwise have to leave the rail for. */}
+                        {menu === project.id ? (
+                          <div className="navrail-menu" role="menu">
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setMenu(null);
+                                setOpenProjects((was) => new Set(was).add(project.id));
+                                onNewSessionIn(project.id);
+                              }}
+                            >
+                              New chat here
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setMenu(null);
+                                const next = prompt("Rename project", project.name);
+                                if (next && next.trim()) {
+                                  onRenameProject(project.id, next.trim());
+                                }
+                              }}
+                            >
+                              Rename
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setMenu(null);
+                                if (confirm(DELETE_WARNING(project.name))) {
+                                  onDeleteProject(project.id);
+                                }
+                              }}
+                            >
+                              Delete project
+                            </button>
+                          </div>
+                        ) : null}
+
                         <ul hidden={!unfolded}>
                           <SessionRows
                             sessions={mine}
@@ -274,25 +367,36 @@ export function NavRail({
                         </ul>
                         <button
                           type="button"
-                          className="navrail-project-delete mi"
+                          className="navrail-project-new"
                           hidden={!unfolded}
-                          onClick={() => {
-                            if (
-                              confirm(
-                                `Delete the project "${project.name}"? Its conversations are kept and become unfiled.`,
-                              )
-                            ) {
-                              onDeleteProject(project.id);
-                            }
-                          }}
+                          onClick={() => onNewSessionIn(project.id)}
                         >
-                          delete project
+                          + New chat here
                         </button>
                       </div>
                     );
                   })}
 
-                  <ul id="navrail-session-list">
+                  <ul
+                    id="navrail-session-list"
+                    data-over={dropOver === "unfiled" ? "" : undefined}
+                    onDragOver={(event) => {
+                      if (event.dataTransfer.types.includes("text/session")) {
+                        event.preventDefault();
+                        setDropOver("unfiled");
+                      }
+                    }}
+                    onDragLeave={() =>
+                      setDropOver((was) => (was === "unfiled" ? null : was))
+                    }
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      setDropOver(null);
+                      const id = event.dataTransfer.getData("text/session");
+                      // null unfiles it -- dragging out is the same gesture.
+                      if (id) onFileSession(id, null);
+                    }}
+                  >
                     <SessionRows
                       sessions={sessions.filter((s) => !s.project_id)}
                       activeId={activeId}

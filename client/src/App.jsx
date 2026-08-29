@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Composer } from "./components/Composer";
 import { Calendar } from "./components/Calendar";
+import { Projects } from "./components/Projects";
 import { Memory } from "./components/Memory";
 import { MessageList } from "./components/MessageList";
 import { NavRail } from "./components/NavRail";
@@ -148,6 +149,29 @@ export default function App() {
     setFocusToken((n) => n + 1);
   }, [startNew]);
 
+  // A chat that begins life already filed. Sessions are normally created
+  // lazily by the first message, so this is the one path that has to make an
+  // empty one up front -- there is nowhere else to record the project.
+  const handleNewSessionIn = useCallback(
+    async (projectId) => {
+      const created = await api.createSession();
+      if (projectId) await api.setSessionProject(created.id, projectId);
+      await onSessionsChanged();
+      setView("chat");
+      await openSession(created.id).catch(() => {});
+      setFocusToken((n) => n + 1);
+    },
+    [api, onSessionsChanged, openSession],
+  );
+
+  const handleFileSession = useCallback(
+    async (sessionId, projectId) => {
+      await api.setSessionProject(sessionId, projectId);
+      await onSessionsChanged();
+    },
+    [api, onSessionsChanged],
+  );
+
   const handleDelete = useCallback(
     async (id) => {
       await sessions.remove(id);
@@ -209,6 +233,9 @@ export default function App() {
           sessions={sessions.sessions}
           projects={projects.projects}
           onNewProject={(name) => projects.create(name)}
+          onRenameProject={(id, name) => projects.rename(id, name)}
+          onNewSessionIn={handleNewSessionIn}
+          onFileSession={handleFileSession}
           onDeleteProject={async (id) => {
             await projects.remove(id);
             // The chats did not go anywhere, but their project_id did -- the
@@ -278,6 +305,20 @@ export default function App() {
                 <Starters onPick={(text) => setDraft({ text })} />
               ) : null}
             </>
+          ) : view === "projects" ? (
+            <Projects
+              projects={projects.projects}
+              sessions={sessions.sessions}
+              onOpenSession={handleOpenSession}
+              onNewProject={(name) => projects.create(name)}
+              onRenameProject={(id, name) => projects.rename(id, name)}
+              onDeleteProject={async (id) => {
+                await projects.remove(id);
+                await onSessionsChanged();
+              }}
+              onNewSessionIn={handleNewSessionIn}
+              onFileSession={handleFileSession}
+            />
           ) : view === "calendar" ? (
             <Calendar api={api} onSessionsChanged={onSessionsChanged} />
           ) : view === "memory" ? (
