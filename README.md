@@ -1,6 +1,6 @@
-# Gantry
+# Courier
 
-One conversation history, one memory. Inference runs on your own hardware; 
+A harness designed to deliver a quality User Xperience on your __own__ hardware!
 
 
 ## Running it on the PC
