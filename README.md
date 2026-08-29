@@ -1,6 +1,4 @@
-Inline-style: 
-![alt text]("(https://github.com/noahhps/Courier/blob/main/image.png)")
-(
+![alt text](https://github.com/noahhps/Courier/blob/main/image.png "dashboard UI Title Image")
 # Courier
 
 A harness designed to deliver a new paradigm of interactions with AI.
