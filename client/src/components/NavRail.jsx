@@ -29,11 +29,11 @@ const DELETE_WARNING = (name) =>
 const LIST_KEY = "unified-llm-rail-list-open";
 
 const DESTINATIONS = [
-  { id: "chat", label: "Chat" },
-  { id: "projects", label: "Projects" },
-  { id: "calendar", label: "Calendar" },
-  { id: "memory", label: "Memory" },
-  { id: "skills", label: "Skills" },
+  { id: "chat", label: "Chat", icon: "chat_bubble" },
+  { id: "projects", label: "Projects", icon: "folder" },
+  { id: "calendar", label: "Calendar", icon: "calendar" },
+  { id: "memory", label: "Memory", icon: "memory" },
+  { id: "skills", label: "Skills", icon: "skills" },
 ];
 
 function Label({ label }) {
@@ -213,6 +213,7 @@ export function NavRail({
               aria-current={view === "chat" ? "page" : undefined}
               onClick={() => onView("chat")}
             >
+              <Icon name={DESTINATIONS[0].icon} />
               <Label label={DESTINATIONS[0].label} />
             </button>
 
@@ -428,6 +429,7 @@ export function NavRail({
               aria-current={view === destination.id ? "page" : undefined}
               onClick={() => onView(destination.id)}
             >
+              <Icon name={destination.icon} />
               <Label label={destination.label} />
             </button>
           ))}

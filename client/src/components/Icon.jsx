@@ -44,6 +44,16 @@ const FILES = {
   // it ever gets drawn open.
   folder: "/folder.svg",
   folder_open: "/folder_open.svg",
+  // Drawn to match the others: Material's filled 24x24 silhouettes, one
+  // path, no stroke. The mask discards their fill colour anyway, so the
+  // #323232 in the files is only there to keep them legible on their own.
+  //
+  // A person, not a memory chip. The first version of this was Material's
+  // `memory` glyph -- a RAM module -- which names the wrong thing entirely:
+  // this page is what the assistant remembers *about you*, not how much
+  // silicon it has.
+  memory: "/memory.svg",
+  skills: "/skills.svg",
 };
 
 export function Icon({ name, badge }) {

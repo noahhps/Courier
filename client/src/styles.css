@@ -646,6 +646,26 @@ svg {
   color: var(--ink);
 }
 
+/* Destination icons. Shut, the rail is 56px of vertical label and there is no
+   room beside it -- and a fixed-width child in a centred flex row is exactly
+   what pushed the mark and the status dot off the edge twice before. So the
+   glyph carries no width until the rail opens, the same trick the pin and the
+   wordmark use. */
+.navrail-dest button > .icon-mask,
+.navrail-group > button > .icon-mask {
+  width: 0;
+  opacity: 0;
+  margin-right: 0;
+  transition: opacity 0.14s ease, width 0.22s ease, margin-right 0.22s ease;
+}
+.navrail[data-open] .navrail-dest button > .icon-mask,
+.navrail[data-open] .navrail-group > button > .icon-mask {
+  width: 16px;
+  opacity: 1;
+  margin-right: 10px;
+  transition-delay: 0.06s;
+}
+
 /* The vertical copy is taken out of the flow so swapping to the horizontal one
    cannot shift the row's geometry mid-transition. */
 .lbl-v {
