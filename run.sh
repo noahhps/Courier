@@ -41,7 +41,10 @@ if   [ -x .venv/Scripts/python.exe ]; then PY=.venv/Scripts/python.exe
 elif [ -x .venv/bin/python ];        then PY=.venv/bin/python
 else
   say "creating .venv"
-  python -m venv .venv
+  # macOS: try python3.13 first (from Homebrew), fall back to python3
+  PYTHON_CMD="python3"
+  if command -v python3.13 >/dev/null 2>&1; then PYTHON_CMD="python3.13"; fi
+  $PYTHON_CMD -m venv .venv
   if [ -x .venv/Scripts/python.exe ]; then PY=.venv/Scripts/python.exe; else PY=.venv/bin/python; fi
 fi
 
