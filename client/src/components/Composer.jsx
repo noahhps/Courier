@@ -118,6 +118,7 @@ export function Composer({
   // -- revoked on removal and on send, or the previews leak.
   const [staged, setStaged] = useState([]);
   const [dropping, setDropping] = useState(false);
+  const [popping, setPopping] = useState(false);
   const form = useRef(null);
   const input = useRef(null);
   const picker = useRef(null);
@@ -152,6 +153,109 @@ export function Composer({
     return () => observer.disconnect();
   }, []);
 
+  // The composer withdraws until you reach for it.
+  //
+  // Idle it sits half below the edge, dimmed. `--near` is how close the cursor
+  // is -- 0 far away, 1 touching it or focused -- and the stylesheet turns that
+  // into height, opacity and the glow. See the `.composer` block in styles.css.
+  //
+  // Deliberately outside React state: this updates on every pointer move, and
+  // a setState there would re-render the composer (and rewrap its textarea)
+  // sixty times a second. Writing one custom property straight to the node
+  // costs a style recalc on a single element and nothing else.
+  useLayoutEffect(() => {
+    const node = form.current;
+    if (!node) return undefined;
+    const box = node.querySelector(".composer-box");
+
+    // How far away the cursor starts having an effect, and how sharply it
+    // ramps once it does. These are the two dials for the feel of the thing.
+    //
+    // REACH is the outer edge: beyond this the composer is fully tucked and
+    // nothing is happening at all. ONSET bends the response inside that range.
+    // At 1 it is linear, and the box starts drifting up the instant you cross
+    // the boundary -- which read as the composer reacting to the cursor merely
+    // being on the same screen. Above 1 it stays down until the cursor is
+    // genuinely close and then comes up quickly: at ONSET 2, halfway through
+    // the reach has moved it only a quarter of the way.
+    //
+    // The pair matters more than either number. Shrinking REACH alone makes
+    // the onset a hard edge you can see snapping on; the curve is what keeps
+    // a late start from also being an abrupt one.
+    const REACH = 130;
+    const ONSET = 2;
+
+    // A cursor is the whole mechanism, so a device without one keeps the
+    // composer present permanently -- on the phone there is nothing to
+    // "approach" with and no way to discover a box that is half off screen.
+    // Reduced motion opts out for the same reason it opts out of the rail:
+    // this is motion, and following the pointer is the most of it.
+    const fine = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const calm = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const enabled = () => fine.matches && !calm.matches;
+
+    let frame = 0;
+    let latest = null;
+
+    const set = (near) => node.style.setProperty("--near", near.toFixed(3));
+
+    const measure = () => {
+      frame = 0;
+      if (!enabled()) return set(1);
+      // Focus outranks distance: while you are typing, the box stays put even
+      // if the pointer has wandered off to the other side of the window.
+      if (node.contains(document.activeElement)) return set(1);
+      if (!latest) return set(0);
+
+      // Distance to the nearest edge of the box, which is 0 anywhere inside
+      // it. Using the centre instead would mean a wide composer felt far away
+      // at its own left edge.
+      const rect = box.getBoundingClientRect();
+      const dx = Math.max(rect.left - latest.x, 0, latest.x - rect.right);
+      const dy = Math.max(rect.top - latest.y, 0, latest.y - rect.bottom);
+      const closeness = Math.max(0, Math.min(1, 1 - Math.hypot(dx, dy) / REACH));
+      set(Math.pow(closeness, ONSET));
+    };
+
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(measure);
+    };
+
+    const onMove = (event) => {
+      latest = { x: event.clientX, y: event.clientY };
+      schedule();
+    };
+    // The pointer leaving the window entirely reads as "gone", not as "last
+    // seen at the edge" -- otherwise dragging off the top of the screen leaves
+    // the composer frozen at whatever it was.
+    const onLeave = () => {
+      latest = null;
+      schedule();
+    };
+
+    window.addEventListener("pointermove", onMove, { passive: true });
+    document.addEventListener("pointerleave", onLeave);
+    node.addEventListener("focusin", schedule);
+    node.addEventListener("focusout", schedule);
+    fine.addEventListener("change", schedule);
+    calm.addEventListener("change", schedule);
+
+    measure();
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerleave", onLeave);
+      node.removeEventListener("focusin", schedule);
+      node.removeEventListener("focusout", schedule);
+      fine.removeEventListener("change", schedule);
+      calm.removeEventListener("change", schedule);
+      // Left present rather than tucked: if this component is going away the
+      // next thing to mount should not inherit a half-hidden composer.
+      node.style.removeProperty("--near");
+    };
+  }, []);
+
   // A starter was picked. `draft` is a fresh object every time, so choosing the
   // same one twice still fires -- comparing the string would swallow the second
   // press and look broken.
@@ -173,62 +277,13 @@ export function Composer({
     if (focusToken) input.current.focus();
   }, [focusToken]);
 
-  useEffect(() => {
-    const composer = form.current;
-    const root = document.documentElement;
-    let isFocused = false;
-    let frameId = null;
-
-    if (sessionLabel) {
-      root.style.setProperty("--near", "0");
-    }
-
-    const updateNear = (value) => {
-      root.style.setProperty("--near", value);
-    };
-
-    const handleFocus = () => {
-      isFocused = true;
-      updateNear(1);
-    };
-
-    const handleBlur = () => {
-      isFocused = false;
-      if (sessionLabel) {
-        updateNear(0);
-      }
-    };
-
-    const handleMouseMove = (event) => {
-      if (isFocused || !sessionLabel) return;
-
-      if (frameId) cancelAnimationFrame(frameId);
-      frameId = requestAnimationFrame(() => {
-        const rect = composer.getBoundingClientRect();
-        const x = event.clientX;
-        const y = event.clientY;
-
-        const distX = Math.max(0, Math.max(rect.left - x, x - rect.right));
-        const distY = Math.max(0, Math.max(rect.top - y, y - rect.bottom));
-        const distance = Math.sqrt(distX * distX + distY * distY);
-
-        const maxDist = 150;
-        const near = Math.max(0, Math.min(1, 1 - distance / maxDist));
-        updateNear(near);
-      });
-    };
-
-    composer.addEventListener("focus", handleFocus, true);
-    composer.addEventListener("blur", handleBlur, true);
-    document.addEventListener("mousemove", handleMouseMove);
-
-    return () => {
-      if (frameId) cancelAnimationFrame(frameId);
-      composer.removeEventListener("focus", handleFocus, true);
-      composer.removeEventListener("blur", handleBlur, true);
-      document.removeEventListener("mousemove", handleMouseMove);
-    };
-  }, [sessionLabel]);
+  // The older proximity effect used to live here. It wrote `--near` to
+  // document.documentElement, which `.composer` shadows with a declaration of
+  // its own -- so every value it set was discarded before it could reach the
+  // box, including the one that was supposed to reveal it on focus. Removed
+  // rather than repaired: the effect above already does this, on the node
+  // whose value actually wins, and two writers for one property is how they
+  // drift apart again.
 
 
   const stage = useCallback((incoming) => {
@@ -302,8 +357,43 @@ export function Composer({
     onSend(text, files, effort);
   };
 
+  // The flourish, for a composer that was actually tucked away.
+  //
+  // Strictly transient: the class goes on, the animation plays once, and 600ms
+  // later it comes off and `--near` is back in sole charge of where the box
+  // sits. It used to also latch a second class holding the animation paused on
+  // its final frame, which pinned the composer open for the rest of the
+  // session -- a filling animation outranks the proximity transform, so
+  // nothing could lower it again.
+  //
+  // The guard below is the other half of that. Popping is a movement from
+  // hidden to present, so if the box is already present there is no movement
+  // to make and replaying it just jerks something that was sitting still --
+  // which is what happens on every click once the latch is gone.
+  //
+  // Worth knowing this makes the flourish nearly unreachable: clicking the box
+  // requires the pointer to be on it, and a pointer on it means proximity has
+  // already raised it. A click is the wrong trigger for this animation.
+  const handleComposerClick = () => {
+    if (popping) return;
+    // Absent means the proximity effect never ran -- a touch screen, or
+    // reduced motion -- where the composer is permanently present and there is
+    // likewise nothing to pop out of.
+    const near = parseFloat(form.current?.style.getPropertyValue("--near"));
+    if (!(near < 0.9)) return;
+    setPopping(true);
+    setTimeout(() => setPopping(false), 600);
+  };
+
   return (
-    <form className="composer" ref={form} onSubmit={submit} data-dropping={dropping ? "" : undefined}>
+    <form
+      className="composer"
+      ref={form}
+      onSubmit={submit}
+      onClick={handleComposerClick}
+      data-dropping={dropping ? "" : undefined}
+      data-popping={popping ? "" : undefined}
+    >
       <div className="composer-box">
         <StagedAttachments items={staged} onRemove={unstage} />
 

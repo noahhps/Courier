@@ -1454,6 +1454,18 @@ svg {
 }
 @keyframes pulse { 50% { opacity: 0.35; } }
 
+@keyframes composer-pop {
+  0% {
+    transform: translateY(calc(var(--tuck) * 0.8)) scale(0.95);
+  }
+  50% {
+    transform: translateY(-12px) scale(1.03);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
 .turn-error {
   border-radius: var(--r-surface);
   background: var(--ochre-field);
@@ -1571,7 +1583,21 @@ svg {
 .composer {
   flex: none;
   padding: 16px 34px 26px;
+  /* Present, not tucked, as the fallback.
+   *
+   * This is only ever the value when the script has not spoken -- and it sets
+   * `--near` in a layout effect, before first paint, so a default of 1 costs
+   * no flash of a visible composer sliding away. What it buys is the failure
+   * mode: if the effect throws, or a webview lacks something it needs, the
+   * result is a composer that never hides rather than one stuck 80% off the
+   * bottom of the screen with no way to discover it. */
   --near: 1;
+  /* One token for every property that moves with proximity -- the box, its
+   * border and the glow animate together, and a duration that differed between
+   * them would read as the composer arriving in pieces. Four declarations had
+   * already been kept at the same 450ms by hand; this is so the next change to
+   * the feel only has to happen in one place. */
+  --composer-motion: 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .composer-box {
@@ -1584,19 +1610,31 @@ svg {
   box-shadow:
     0 1px 2px rgba(20, 23, 29, 0.04),
     0 8px 24px -18px rgba(20, 23, 29, 0.4);
-  /* Positioned so the glow below can hang off it, and because the transform
-     makes this a stacking context anyway. */
   position: relative;
-  /* How much of itself it tucks away when idle. Just over half, so the send
-     row is gone and the first line of the placeholder is still legible --
-     enough to recognise, not enough to use. */
-  --tuck: 52%;
+  --tuck: 80%;
   transform: translateY(calc(var(--tuck) * (1 - var(--near))));
-  opacity: calc(0.42 + 0.58 * var(--near));
+  opacity: 1;
   transition:
-    transform 450ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    opacity 450ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    border-color 450ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    transform var(--composer-motion),
+    border-color var(--composer-motion);
+}
+
+/* The flourish on first click. A one-shot, and only while `data-popping` is
+ * set -- 600ms later the class comes off and `transform` goes back to being
+ * driven by `--near` alone.
+ *
+ * There used to be a second rule here, `.composer.popped`, holding the same
+ * animation paused at its last frame with `forwards` fill. That is what made
+ * the composer stick open: a running or filling animation outranks normal
+ * declarations in the cascade, so it beat the proximity transform outright.
+ * Since the class was never removed, one click anywhere on the composer pinned
+ * it up permanently and no amount of moving the cursor away could lower it.
+ *
+ * One property, one owner: `--near` decides where the box sits, and the pop is
+ * allowed to borrow it for exactly the length of the animation. */
+.composer[data-popping] .composer-box {
+  animation: composer-pop 600ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards 1;
+  transition: none;
 }
 
 /* The glow, as its own layer so proximity drives one opacity rather than
@@ -1617,17 +1655,34 @@ svg {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent),
     0 8px 34px -10px color-mix(in srgb, var(--accent) 34%, transparent);
-  transition: opacity 450ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: opacity var(--composer-motion);
   
 }
 
 .composer-box:focus-within {
   border-color: var(--line-strong);
   transition:
-    transform 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
-    opacity 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
-    border-color 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  bottom: auto;
+    transform 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    opacity 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    border-color 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* The two cases where approaching-with-a-cursor is not a thing that can
+   happen, so the composer simply stays put.
+ *
+ * The phone is the one that matters: there is no pointer to come closer, and
+ * therefore nothing that could ever reveal a box sitting 80% below the edge --
+ * the feature would read as a broken composer. Reduced motion opts out because
+ * this is motion, and the global `transition: none` further down would
+ * otherwise stop the animation while leaving the transform, freezing it
+ * tucked. */
+@media (hover: none), (pointer: coarse), (prefers-reduced-motion: reduce) {
+  .composer-box {
+    transform: none;
+  }
+  .composer-box::before {
+    opacity: 0;
+  }
 }
 
 .composer textarea {
