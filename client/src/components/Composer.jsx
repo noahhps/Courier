@@ -173,6 +173,64 @@ export function Composer({
     if (focusToken) input.current.focus();
   }, [focusToken]);
 
+  useEffect(() => {
+    const composer = form.current;
+    const root = document.documentElement;
+    let isFocused = false;
+    let frameId = null;
+
+    if (sessionLabel) {
+      root.style.setProperty("--near", "0");
+    }
+
+    const updateNear = (value) => {
+      root.style.setProperty("--near", value);
+    };
+
+    const handleFocus = () => {
+      isFocused = true;
+      updateNear(1);
+    };
+
+    const handleBlur = () => {
+      isFocused = false;
+      if (sessionLabel) {
+        updateNear(0);
+      }
+    };
+
+    const handleMouseMove = (event) => {
+      if (isFocused || !sessionLabel) return;
+
+      if (frameId) cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(() => {
+        const rect = composer.getBoundingClientRect();
+        const x = event.clientX;
+        const y = event.clientY;
+
+        const distX = Math.max(0, Math.max(rect.left - x, x - rect.right));
+        const distY = Math.max(0, Math.max(rect.top - y, y - rect.bottom));
+        const distance = Math.sqrt(distX * distX + distY * distY);
+
+        const maxDist = 150;
+        const near = Math.max(0, Math.min(1, 1 - distance / maxDist));
+        updateNear(near);
+      });
+    };
+
+    composer.addEventListener("focus", handleFocus, true);
+    composer.addEventListener("blur", handleBlur, true);
+    document.addEventListener("mousemove", handleMouseMove);
+
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+      composer.removeEventListener("focus", handleFocus, true);
+      composer.removeEventListener("blur", handleBlur, true);
+      document.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, [sessionLabel]);
+
+
   const stage = useCallback((incoming) => {
     const items = [...incoming].map((file) => ({
       key: `${file.name}:${file.size}:${file.lastModified}:${Math.random()}`,

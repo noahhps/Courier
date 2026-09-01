@@ -112,6 +112,17 @@
      ellipsises, which is the width the session list needs rather than the
      width the three destination labels need. */
   --rail-open: 252px;
+  /* How the rail opens and closes.
+   *
+   * One token because six rules animate together -- the panel's width and
+   * padding, the top row's alignment, the destination lozenges, the label
+   * glyphs and the folded session list -- and a duration that differs between
+   * them reads as the panel arriving in pieces rather than as one movement.
+   *
+   * The content fades are deliberately left shorter and delayed: 0.06s + 0.14s
+   * and 0.04s + 0.16s both land exactly on 200ms, so the labels finish
+   * appearing at the moment the geometry stops rather than after it. */
+  --rail-motion: 200ms ease-in-out;
 
   /* 1c is a single-family system: one grotesque at every size, with weight and
      tracking doing the work, and a mono for labels and machine output. Neither
@@ -370,8 +381,9 @@ svg {
   border-radius: 0;
   box-shadow: inset -1px 0 0 var(--line-soft);
   overflow: hidden;
-  transition: width 0.22s ease, box-shadow 0.22s ease, padding 0.22s ease,
-    background 0.22s ease, border-radius 0.22s ease;
+  transition: width var(--rail-motion), box-shadow var(--rail-motion),
+    padding var(--rail-motion), background var(--rail-motion),
+    border-radius var(--rail-motion);
 }
 
 /* Opened, it stops being the page and becomes a panel: its own surface colour,
@@ -459,7 +471,7 @@ svg {
      reserves 22px, which is most of the overflow on its own. */
   gap: 0;
   justify-content: center;
-  transition: justify-content 0.22s ease;
+  transition: justify-content var(--rail-motion);
 }
 .navrail[data-open] .navrail-top { justify-content: flex-start; gap: 11px; }
 
@@ -563,7 +575,7 @@ svg {
   gap: 14px;
   /* Open, the gaps close up: 14px between free-standing pills reads as spacing,
      but between rows of a list it reads as a gap in the list. */
-  transition: gap 0.22s ease;
+  transition: gap var(--rail-motion);
   /* Lets the session list inside shrink rather than pushing the status dot
      out through the bottom of the panel. */
   min-height: 0;
@@ -595,9 +607,9 @@ svg {
      this it would spill out past the lozenge. */
   overflow: hidden;
   color: var(--text-faint);
-  transition: min-height 0.22s ease, width 0.22s ease, border-radius 0.22s ease,
-    justify-content 0.22s ease, padding 0.22s ease, background 0.16s ease,
-    color 0.16s ease;
+  transition: min-height var(--rail-motion), width var(--rail-motion),
+    border-radius var(--rail-motion), justify-content var(--rail-motion),
+    padding var(--rail-motion), background 0.16s ease, color 0.16s ease;
 }
 
 /* Where you are. Shut, the rail is a column of icons and the only way to say
@@ -656,7 +668,8 @@ svg {
   width: 0;
   opacity: 0;
   margin-right: 0;
-  transition: opacity 0.14s ease, width 0.22s ease, margin-right 0.22s ease;
+  transition: opacity 0.14s ease, width var(--rail-motion),
+    margin-right var(--rail-motion);
 }
 .navrail[data-open] .navrail-dest button > .icon-mask,
 .navrail[data-open] .navrail-group > button > .icon-mask {
@@ -699,7 +712,7 @@ svg {
   display: grid;
   grid-template-rows: 0fr;
   opacity: 0;
-  transition: grid-template-rows 0.24s ease, opacity 0.16s ease;
+  transition: grid-template-rows var(--rail-motion), opacity 0.16s ease;
 }
 .navrail[data-open] .navrail-sessions {
   grid-template-rows: 1fr;
@@ -1538,9 +1551,27 @@ svg {
 
 /* -- composer --------------------------------------------------------------- */
 
+/* The composer withdraws when it is not wanted.
+ *
+ * Idle, it sits half below the edge of the sheet and dimmed. As the pointer
+ * comes toward it, it rises and lights up in proportion to how close the
+ * cursor is; focus pins it fully present regardless. `--near` carries that
+ * proximity as a number from 0 (far, or idle) to 1 (touching it, or focused),
+ * and is written frame by frame from Composer.jsx.
+ *
+ * It defaults to 1 rather than 0 on purpose. If the script never runs -- an
+ * older webview, an error earlier in the effect -- the failure should be a
+ * composer that is simply always visible, not one stuck half off the screen
+ * with no way to discover it.
+ *
+ * Nothing here changes the composer's layout box. `--composer-h` is measured
+ * from `.composer`, and a transform does not affect offsetHeight, so the
+ * thread keeps padding for the full height and the last turn never shifts as
+ * the box slides. The space under it stays reserved and stays empty. */
 .composer {
   flex: none;
   padding: 16px 34px 26px;
+  --near: 1;
 }
 
 .composer-box {
@@ -1553,8 +1584,51 @@ svg {
   box-shadow:
     0 1px 2px rgba(20, 23, 29, 0.04),
     0 8px 24px -18px rgba(20, 23, 29, 0.4);
+  /* Positioned so the glow below can hang off it, and because the transform
+     makes this a stacking context anyway. */
+  position: relative;
+  /* How much of itself it tucks away when idle. Just over half, so the send
+     row is gone and the first line of the placeholder is still legible --
+     enough to recognise, not enough to use. */
+  --tuck: 52%;
+  transform: translateY(calc(var(--tuck) * (1 - var(--near))));
+  opacity: calc(0.42 + 0.58 * var(--near));
+  transition:
+    transform 450ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 450ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    border-color 450ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.composer-box:focus-within { border-color: var(--line-strong); }
+
+/* The glow, as its own layer so proximity drives one opacity rather than
+   interpolating colours inside a box-shadow -- which needs calc() inside
+   color-mix() and is the sort of thing that silently does nothing on a webview
+   half a version behind.
+
+   Behind the box's own background (z-index: -1), so only the part that spreads
+   beyond the edge is ever seen and the text is never veiled. */
+.composer-box::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: var(--near);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 8px 34px -10px color-mix(in srgb, var(--accent) 34%, transparent);
+  transition: opacity 450ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  
+}
+
+.composer-box:focus-within {
+  border-color: var(--line-strong);
+  transition:
+    transform 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    opacity 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    border-color 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  bottom: auto;
+}
 
 .composer textarea {
   display: block;
