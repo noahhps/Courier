@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSkills } from "../hooks/useSkills";
 import { iconForServer } from "../lib/mcpIcons";
+import { useDialog } from "./Dialog";
 import { Icon } from "./Icon";
 import { ServiceIcon } from "./ServiceIcon";
 
@@ -384,6 +385,7 @@ function McpServerRow({ api, server, onToggle, onDelete, onSync, onLogo, onReset
 }
 
 export function Skills({ api }) {
+  const { confirm, notify } = useDialog();
   const { skills, loading, error, refresh, setEnabled, setKey, pending } =
     useSkills(api);
   const [tab, setTab] = useState("skills"); // "skills" | "mcp"
@@ -440,7 +442,7 @@ export function Skills({ api }) {
       await api.uploadMcpIcon(serverId, await readAsBase64(file), file.type || null);
       await loadMcpData();
     } catch (err) {
-      alert(`Could not use that image: ${err.message || err}`);
+      await notify(`Could not use that image: ${err.message || err}`);
     } finally {
       setMcpBusy(false);
     }
@@ -455,7 +457,7 @@ export function Skills({ api }) {
       await api.refreshMcpIcon(serverId).catch(() => {});
       await loadMcpData();
     } catch (err) {
-      alert(`Could not reset that logo: ${err.message || err}`);
+      await notify(`Could not reset that logo: ${err.message || err}`);
     } finally {
       setMcpBusy(false);
     }
@@ -467,7 +469,7 @@ export function Skills({ api }) {
     try {
       parsed = JSON.parse(importText);
     } catch (err) {
-      alert(`That is not valid JSON: ${err.message}`);
+      await notify(`That is not valid JSON: ${err.message}`);
       return;
     }
     setMcpBusy(true);
@@ -478,7 +480,7 @@ export function Skills({ api }) {
       setImportOpen(false);
       const added = result.added.map((s) => s.name);
       const skipped = result.skipped.map((s) => `${s.name} (${s.reason})`);
-      alert(
+      await notify(
         [
           added.length ? `Added: ${added.join(", ")}` : "Nothing added.",
           skipped.length ? `Skipped: ${skipped.join(", ")}` : "",
@@ -487,7 +489,7 @@ export function Skills({ api }) {
           .join("\n"),
       );
     } catch (err) {
-      alert(`Import failed: ${err.message || err}`);
+      await notify(`Import failed: ${err.message || err}`);
     } finally {
       setMcpBusy(false);
     }
@@ -500,7 +502,7 @@ export function Skills({ api }) {
       await loadMcpData();
       await refresh();
     } catch (err) {
-      alert(`Failed activating preset: ${err.message || err}`);
+      await notify(`Failed activating preset: ${err.message || err}`);
     } finally {
       setMcpBusy(false);
     }
@@ -513,21 +515,26 @@ export function Skills({ api }) {
       await loadMcpData();
       await refresh();
     } catch (err) {
-      alert(`Failed toggling server: ${err.message || err}`);
+      await notify(`Failed toggling server: ${err.message || err}`);
     } finally {
       setMcpBusy(false);
     }
   };
 
   const handleDeleteMcpServer = async (serverId, serverName) => {
-    if (!confirm(`Delete MCP server "${serverName}"?`)) return;
+    const yes = await confirm(`Delete MCP server "${serverName}"?`, {
+      title: "Delete server",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!yes) return;
     setMcpBusy(true);
     try {
       await api.deleteMcpServer(serverId);
       await loadMcpData();
       await refresh();
     } catch (err) {
-      alert(`Failed deleting server: ${err.message || err}`);
+      await notify(`Failed deleting server: ${err.message || err}`);
     } finally {
       setMcpBusy(false);
     }
@@ -540,7 +547,7 @@ export function Skills({ api }) {
       await loadMcpData();
       await refresh();
     } catch (err) {
-      alert(`Sync error: ${err.message || err}`);
+      await notify(`Sync error: ${err.message || err}`);
     } finally {
       setMcpBusy(false);
     }
@@ -580,7 +587,7 @@ export function Skills({ api }) {
       await loadMcpData();
       await refresh();
     } catch (err) {
-      alert(`Failed adding server: ${err.message || err}`);
+      await notify(`Failed adding server: ${err.message || err}`);
     } finally {
       setMcpBusy(false);
     }

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -94,7 +97,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # not after several thousand chunks have been embedded.
         indexing = asyncio.create_task(_index_quietly())
         mcp_sync = asyncio.create_task(_sync_mcp_quietly())
+        orphan_watch = asyncio.create_task(_exit_with_parent())
         yield
+        orphan_watch.cancel()
         mcp_sync.cancel()
         await mcp_manager.aclose()
         indexing.cancel()
@@ -112,6 +117,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:  # never keep the server from starting
             print(f"[memory] startup indexing: {exc}")
 
+    async def _exit_with_parent() -> None:
+        """Shut down when whatever launched us is gone.
+
+        Only when asked. A server started from a shell must keep running when
+        that shell closes -- that is what `nohup` and every background launch
+        depend on -- so this does nothing unless the supervisor that spawned it
+        opts in by setting COURIER_EXIT_WITH_PARENT.
+
+        The desktop shell sets it. Without this, force-quitting the app leaves
+        the server holding the port: the shell's own exit handler never runs on
+        SIGKILL, and the next launch then adopts a server the reader believes
+        they closed. That is the confusing half of the orphan problem, and it
+        is worse than the leaked memory.
+
+        Detection is by reparenting rather than by signal, because that is the
+        one thing SIGKILL cannot dodge: when the parent dies the kernel hands
+        its children to init, and getppid() changes to 1.
+        """
+        if os.environ.get("COURIER_EXIT_WITH_PARENT") != "1":
+            return
+        started_under = os.getppid()
+        while True:
+            await asyncio.sleep(2)
+            current = os.getppid()
+            if current != started_under:
+                print(f"[server] supervisor {started_under} exited -- shutting down")
+                # SIGTERM to ourselves rather than os._exit: uvicorn has a
+                # handler for it, so connections close and the lifespan
+                # shutdown above still runs.
+                os.kill(os.getpid(), signal.SIGTERM)
+                return
+
     async def _sync_mcp_quietly() -> None:
         try:
             res = await mcp_manager.sync_all()
@@ -125,6 +162,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             print(f"[mcp] startup sync: {exc}")
 
     app = FastAPI(title="unified-llm", lifespan=lifespan)
+
+    # The desktop shell is a different origin from this server.
+    #
+    # In a browser the client is served by this process, so `/api` is
+    # same-origin and none of this applies. The Tauri build loads the same
+    # bundle from a custom protocol instead, which makes every call
+    # cross-origin -- and the bearer header makes each one a preflight. With
+    # no CORS middleware the browser rejects them before the request is ever
+    # sent, which surfaces in the UI as an unreachable server rather than as
+    # the policy decision it is.
+    #
+    # Named origins rather than "*": the token is the whole perimeter, so a
+    # wildcard would let any page the reader visits make authenticated calls
+    # to a LAN-exposed server if it ever learned the token. Both spellings are
+    # listed because macOS serves the shell from tauri://localhost and Windows
+    # from http://tauri.localhost -- the Windows client should not need a
+    # server change to work.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["tauri://localhost", "http://tauri.localhost"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+        # Cookies are not how this authenticates, and allowing them would mean
+        # the browser attaching ambient credentials to these requests.
+        allow_credentials=False,
+    )
     app.state.settings = settings
     app.state.db = db
     # Hung here so the one-liners in docs/memory.md can reach them without

@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 
+import { useDialog } from "./Dialog";
+
 /* Projects, as a screen rather than a fold in the rail.
  *
  * The rail's version is for moving around while you work. This one is for
@@ -21,6 +23,7 @@ export function Projects({
   onNewSessionIn,
   onFileSession,
 }) {
+  const { confirm } = useDialog();
   const [name, setName] = useState("");
   const [renaming, setRenaming] = useState(null);
   const [draftName, setDraftName] = useState("");
@@ -188,14 +191,12 @@ export function Projects({
                     <button
                       type="button"
                       className="mi"
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `Delete the project "${project.name}"? Its conversations are kept and become unfiled.`,
-                          )
-                        ) {
-                          onDeleteProject(project.id);
-                        }
+                      onClick={async () => {
+                        const yes = await confirm(
+                          `Delete the project "${project.name}"? Its conversations are kept and become unfiled.`,
+                          { title: "Delete project", confirmLabel: "Delete", destructive: true },
+                        );
+                        if (yes) onDeleteProject(project.id);
                       }}
                     >
                       delete

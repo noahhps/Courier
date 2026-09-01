@@ -1,6 +1,7 @@
 // Transport. Knows about HTTP and SSE framing; knows nothing about React.
 
 import { clientContext } from "./clientContext";
+import { serverOrigin } from "./serverOrigin";
 
 export class UnauthorizedError extends Error {
   constructor() {
@@ -73,7 +74,8 @@ export async function* readEvents(response) {
  */
 export function createApi(token, onUnauthorized = () => {}) {
   async function request(path, options = {}) {
-    const response = await fetch("/api" + path, {
+    // Absolute under Tauri, relative in a browser -- see serverOrigin.
+    const response = await fetch(serverOrigin() + "/api" + path, {
       ...options,
       headers: {
         "Content-Type": "application/json",

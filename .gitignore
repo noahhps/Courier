@@ -14,3 +14,7 @@ node_modules/
 dist/
 
 .DS_Store
+
+# Tauri: Rust build output, and the generated schemas/plugin manifests.
+client/src-tauri/target/
+client/src-tauri/gen/

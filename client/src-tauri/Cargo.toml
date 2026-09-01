@@ -1,0 +1,35 @@
+[package]
+name = "courier"
+version = "0.1.0"
+description = "Courier — a personal assistant on your own hardware"
+authors = ["Noah Stivers"]
+edition = "2021"
+rust-version = "1.77"
+
+# The binary is a thin wrapper around the library so the same code can be
+# built for desktop here and, if the Windows client follows, reused there
+# without a second copy of the setup.
+[lib]
+name = "courier_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# tray-icon is the whole reason this is a desktop app rather than a bookmark.
+tauri = { version = "2", features = ["tray-icon"] }
+# Spawns and supervises the Python server as a sidecar. Also what a future
+# "open the data folder" menu item would use.
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# A release build of a webview shell spends almost all its size on debug
+# symbols and unoptimised glue. These are the standard Tauri release settings.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

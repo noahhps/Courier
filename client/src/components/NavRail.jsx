@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 
+import { useDialog } from "./Dialog";
 import { Icon } from "./Icon";
 import { ModelMenu } from "./ModelMenu";
 
@@ -56,6 +57,7 @@ function Label({ label }) {
    that are not in any -- and two copies of a delete confirmation is exactly
    how the two drift apart. */
 function SessionRows({ sessions, activeId, onOpenSession, onDelete, empty }) {
+  const { confirm } = useDialog();
   if (sessions.length === 0) {
     return (
       <li data-empty="true">
@@ -81,9 +83,17 @@ function SessionRows({ sessions, activeId, onOpenSession, onDelete, empty }) {
       <button
         className="navrail-session-delete"
         aria-label={`Delete ${session.title || "Untitled"}`}
-        onClick={(event) => {
+        onClick={async (event) => {
+          // Stopped synchronously, before the await: the row underneath opens
+          // the conversation, and letting the click through while the dialog
+          // is deciding would open the very thing being deleted.
           event.stopPropagation();
-          if (confirm("Delete this conversation?")) onDelete(session.id);
+          const yes = await confirm("Delete this conversation?", {
+            title: "Delete conversation",
+            confirmLabel: "Delete",
+            destructive: true,
+          });
+          if (yes) onDelete(session.id);
         }}
       >
         ×
@@ -117,6 +127,7 @@ export function NavRail({
   onNewSession,
   onDelete,
 }) {
+  const { ask, confirm } = useDialog();
   // Whether the conversation list is unfolded under Chat. A layout preference,
   // so it persists like the pin does -- someone who keeps it shut wants it shut
   // tomorrow as well.
@@ -333,12 +344,13 @@ export function NavRail({
                             <button
                               type="button"
                               role="menuitem"
-                              onClick={() => {
+                              onClick={async () => {
                                 setMenu(null);
-                                const next = prompt("Rename project", project.name);
-                                if (next && next.trim()) {
-                                  onRenameProject(project.id, next.trim());
-                                }
+                                const next = await ask("Rename project", {
+                                  value: project.name,
+                                  confirmLabel: "Rename",
+                                });
+                                if (next) onRenameProject(project.id, next);
                               }}
                             >
                               Rename
@@ -346,11 +358,14 @@ export function NavRail({
                             <button
                               type="button"
                               role="menuitem"
-                              onClick={() => {
+                              onClick={async () => {
                                 setMenu(null);
-                                if (confirm(DELETE_WARNING(project.name))) {
-                                  onDeleteProject(project.id);
-                                }
+                                const yes = await confirm(DELETE_WARNING(project.name), {
+                                  title: "Delete project",
+                                  confirmLabel: "Delete",
+                                  destructive: true,
+                                });
+                                if (yes) onDeleteProject(project.id);
                               }}
                             >
                               Delete project
@@ -411,9 +426,12 @@ export function NavRail({
                   <button
                     type="button"
                     className="navrail-new"
-                    onClick={() => {
-                      const name = prompt("Name for the new project");
-                      if (name && name.trim()) onNewProject(name.trim());
+                    onClick={async () => {
+                      const name = await ask("Name for the new project", {
+                        placeholder: "Project name",
+                        confirmLabel: "Create",
+                      });
+                      if (name) onNewProject(name);
                     }}
                   >
                     + New project

@@ -2624,3 +2624,79 @@ svg {
   display: block;
   white-space: nowrap;
 }
+
+/* Dialogs -- see components/Dialog.jsx.
+ *
+ * The only modal in the system, and it exists because `prompt`/`confirm` are
+ * not implemented in the desktop shell's webview. Everything else in this app
+ * stays in the margin rather than over the top, so this is drawn to be as
+ * small and as quiet as a question can be: one floating card, and the single
+ * shadow the direction allows. */
+.dlg-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  /* Ink rather than black: the ground is a cool blue-grey and a neutral
+     scrim greys it toward green. */
+  background: color-mix(in srgb, var(--ink) 34%, transparent);
+}
+
+.dlg {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-surface);
+  /* The floating card, which is the one place a shadow is allowed. */
+  box-shadow: 0 18px 44px -18px color-mix(in srgb, var(--ink) 45%, transparent);
+}
+
+.dlg-title {
+  margin: 0;
+  font: 500 var(--t-lg)/1.25 var(--font);
+  color: var(--ink);
+}
+
+.dlg-message {
+  margin: 0;
+  font: 400 var(--t-sm)/1.6 var(--font);
+  color: var(--text-dim);
+}
+/* With no title above it the message is the heading, so it carries that
+   weight instead of reading as a caption nobody asked about. */
+.dlg-title + .dlg-message { color: var(--text-dim); }
+.dlg > .dlg-message:first-child { color: var(--ink); font-size: var(--t-md); }
+
+.dlg-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-surface);
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 var(--t-sm)/1.4 var(--font);
+}
+.dlg-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.dlg-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Destructive confirmations wear the warning colour rather than the ink
+   fill, so "Delete" does not look identical to "Save". */
+.dlg-actions .btnp[data-destructive] {
+  background: #8c2f22;
+}
+.dlg-actions .btnp[data-destructive]:hover { background: #74271c; }
