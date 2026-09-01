@@ -2111,6 +2111,68 @@ svg {
 
 /* -- permission ask (1f) ------------------------------------------------------ */
 
+/* -- MCP provenance ---------------------------------------------------------
+ *
+ * Which server a tool came from, as a glyph and a name. The glyph is the part
+ * that does the work: a shelf of MCP tools is a column of near-identical rows,
+ * and "gmail" set in 9.5px mono is not something the eye finds while scanning
+ * -- it is something it reads once it has already stopped. */
+.mcp-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px 2px 5px;
+  border-radius: var(--r-pill);
+  background: var(--violet-field);
+  color: var(--violet);
+  font: 500 var(--t-micro)/1 var(--font-mono);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.mcp-tag .icon-mask { width: 13px; height: 13px; }
+
+/* The same glyph at row scale, naming a server rather than one of its tools. */
+.mcp-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-surface);
+  background: var(--violet-field);
+  color: var(--violet);
+}
+.mcp-avatar .icon-mask { width: 15px; height: 15px; }
+.mcp-avatar[data-off] { background: var(--rail); color: var(--text-faint); }
+
+/* A fetched brand logo. The only artwork in the shell that keeps its own
+   colours: every other icon is masked over currentColor so it inherits the
+   row, which is right for a silhouette and destroys a logo. A neutral plate
+   behind it, because a lot of favicons are dark marks on transparent and would
+   otherwise vanish in dark mode. */
+.mcp-avatar[data-logo] { background: var(--surface); border: 1px solid var(--line-soft); }
+.mcp-avatar[data-logo] img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  border-radius: 2px;
+}
+.mcp-avatar[data-logo][data-off] { opacity: 0.45; filter: grayscale(1); }
+
+/* The fallback when there is no logo and no glyph: initials on a colour
+   derived from the name. Hue comes from the component; saturation and
+   lightness are mixed out of the theme's own tokens, so a monogram belongs to
+   the palette rather than sitting on top of it. */
+.mcp-avatar[data-mono] {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: color-mix(in oklab, hsl(var(--hue, 260) 70% 50%) 16%, var(--surface));
+  color: color-mix(in oklab, hsl(var(--hue, 260) 70% 45%) 78%, var(--text));
+}
+
 .ask { padding: 20px; }
 .ask ul {
   list-style: none;

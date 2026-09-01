@@ -34,6 +34,7 @@ const DESTINATIONS = [
   { id: "calendar", label: "Calendar", icon: "calendar" },
   { id: "memory", label: "Memory", icon: "memory" },
   { id: "skills", label: "Skills", icon: "skills" },
+  { id: "tools", label: "Tools", icon: "tools" },
 ];
 
 function Label({ label }) {

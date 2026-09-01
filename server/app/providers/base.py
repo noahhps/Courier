@@ -84,9 +84,10 @@ class Chunk:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     # Populated on the final chunk when the model stopped to ask for skills.
-    # It rides on `done` rather than arriving mid-stream because neither
-    # backend can promise a complete, parseable call before the stop event --
-    # a half-streamed argument object is not something a caller can act on.
+    # It rides on `done` rather than arriving mid-stream because a caller can
+    # only act on a turn's calls once the turn has stopped. A backend that
+    # emits them earlier -- Ollama sends each on its own event -- buffers them
+    # and hands the set over here.
     tool_calls: tuple[ToolCall, ...] = ()
     meta: dict[str, Any] = field(default_factory=dict)
 

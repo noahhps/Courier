@@ -10,22 +10,39 @@ from datetime import datetime
 from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from ..situation import Situation
 from .skill import Skill
 
 
 class Clock(Skill):
+    # The default answer depends on which device is asking, so the turn loop
+    # hands this one the session's situation.
+    wants_context = True
+
     def __init__(self):
         super().__init__(
             name="current_time",
-            description="The current date and time, optionally in a named IANA timezone.",
+            description=(
+                "The current date and time. Defaults to the user's own "
+                "timezone; pass one only to ask about somewhere else."
+            ),
             parameters={"type": "object", "properties": {
                 "timezone": {"type": "string",
                              "description": "IANA name, e.g. Europe/London."}}},
         )
 
-    async def use(self, timezone: str | None = None) -> str:
+    async def use(
+        self, timezone: str | None = None, context: Situation | None = None
+    ) -> str:
         if not timezone:
-            return datetime.now().astimezone().strftime("%A %d %B %Y, %H:%M %Z").strip()
+            # The user's zone first, the server's only as a last resort. These
+            # are routinely different machines -- the README has the server on
+            # the box with the GPU and the reader on a phone -- so answering
+            # "what time is it" with the server's clock is a wrong answer
+            # delivered confidently.
+            zone = context.tzinfo() if context else None
+            now = datetime.now(zone) if zone else datetime.now().astimezone()
+            return now.strftime("%A %d %B %Y, %H:%M %Z").strip()
 
         try:
             zone = ZoneInfo(timezone)

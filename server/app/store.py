@@ -13,6 +13,7 @@ import uuid
 from dataclasses import dataclass
 
 from .db import Database
+from .situation import Situation
 
 
 def _now() -> int:
@@ -183,20 +184,152 @@ class StoredEvent:
         }
 
 
+@dataclass
+class StoredMCPServer:
+    id: str
+    name: str
+    transport: str  # stdio | sse | http | websocket
+    command: str | None = None
+    args: str | None = None  # JSON array
+    env: str | None = None  # JSON object
+    cwd: str | None = None
+    url: str | None = None
+    headers: str | None = None  # JSON object
+    auto_approve: str | None = None  # JSON array
+    enabled: int = 1
+    description: str | None = None
+    created_at: int = 0
+    updated_at: int = 0
+    homepage: str | None = None  # where to look for this service's logo
+
+    def parsed_args(self) -> list[str]:
+        if not self.args:
+            return []
+        try:
+            val = json.loads(self.args)
+            return [str(x) for x in val] if isinstance(val, list) else []
+        except Exception:
+            return []
+
+    def parsed_env(self) -> dict[str, str]:
+        if not self.env:
+            return {}
+        try:
+            val = json.loads(self.env)
+            return {str(k): str(v) for k, v in val.items()} if isinstance(val, dict) else {}
+        except Exception:
+            return {}
+
+    def parsed_headers(self) -> dict[str, str]:
+        if not self.headers:
+            return {}
+        try:
+            val = json.loads(self.headers)
+            return {str(k): str(v) for k, v in val.items()} if isinstance(val, dict) else {}
+        except Exception:
+            return {}
+
+    def parsed_auto_approve(self) -> list[str]:
+        if not self.auto_approve:
+            return []
+        try:
+            val = json.loads(self.auto_approve)
+            return [str(x) for x in val] if isinstance(val, list) else []
+        except Exception:
+            return []
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "transport": self.transport,
+            "command": self.command,
+            "args": self.parsed_args(),
+            "env": self.parsed_env(),
+            "cwd": self.cwd,
+            "url": self.url,
+            "headers": self.parsed_headers(),
+            "auto_approve": self.parsed_auto_approve(),
+            "enabled": bool(self.enabled),
+            "description": self.description,
+            "homepage": self.homepage,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
 class Store:
     def __init__(self, db: Database) -> None:
         self.db = db
 
     # -- sessions ---------------------------------------------------------
 
-    def create_session(self, title: str | None = None) -> dict:
+    def create_session(
+        self, title: str | None = None, situation: Situation | None = None
+    ) -> dict:
         session_id = _new_id("ses")
         now = _now()
+        where = (situation or Situation()).to_row()
         self.db.execute(
-            "INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-            (session_id, title, now, now),
+            """
+            INSERT INTO sessions
+                   (id, title, created_at, updated_at, tz, locale, utc_offset, region)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                title,
+                now,
+                now,
+                where["tz"],
+                where["locale"],
+                where["utc_offset"],
+                where["region"],
+            ),
         )
-        return {"id": session_id, "title": title, "created_at": now, "updated_at": now}
+        return {
+            "id": session_id,
+            "title": title,
+            "created_at": now,
+            "updated_at": now,
+            **where,
+        }
+
+    def session_situation(self, session_id: str) -> Situation:
+        """Where and when this conversation started. Empty if it never said."""
+        row = self.db.query_one(
+            "SELECT tz, locale, utc_offset, region FROM sessions WHERE id = ?",
+            (session_id,),
+        )
+        return Situation.from_row(dict(row) if row else None)
+
+    def set_session_situation(self, session_id: str, situation: Situation) -> bool:
+        """Record it, but only the first time. False if it was already known.
+
+        First write wins on purpose. The client sends this with every message
+        so that a session created by an older build still gets filled in, but
+        a conversation whose stated time and place changed underneath it would
+        contradict what the model was told on turn one -- and would invalidate
+        the prompt cache on every turn it changed.
+        """
+        if not situation.known:
+            return False
+        current = self.session_situation(session_id)
+        if current.known:
+            return False
+        where = situation.to_row()
+        self.db.execute(
+            "UPDATE sessions SET tz = ?, locale = ?, utc_offset = ?, region = ? "
+            "WHERE id = ?",
+            (
+                where["tz"],
+                where["locale"],
+                where["utc_offset"],
+                where["region"],
+                session_id,
+            ),
+        )
+        return True
 
     def list_sessions(self, limit: int = 200) -> list[dict]:
         rows = self.db.query(
@@ -889,6 +1022,40 @@ class Store:
         )
         return event
 
+    def update_event(
+        self,
+        event_id: str,
+        *,
+        title: str,
+        starts_at: str,
+        ends_at: str | None,
+        all_day: bool,
+        notes: str | None,
+    ) -> StoredEvent | None:
+        """Replace an event's mutable fields. None if there is no such event.
+
+        Every field is required rather than optional-and-merged, which is the
+        opposite of `update_message` above and deliberate: telling "leave this
+        alone" apart from "clear this" needs a sentinel, and a calendar edit
+        genuinely has to be able to clear an end time or a note. The callers
+        already hold the row -- they read it to find it -- so they state the
+        whole new event and this writes it.
+
+        `created_at`, `session_id` and `tz` are absent for the same reason:
+        the first two are provenance, which editing an event does not change.
+        """
+        if self.get_event(event_id) is None:
+            return None
+        self.db.execute(
+            """
+            UPDATE calendar_events
+               SET title = ?, starts_at = ?, ends_at = ?, all_day = ?, notes = ?
+             WHERE id = ?
+            """,
+            (title, starts_at, ends_at, 1 if all_day else 0, notes, event_id),
+        )
+        return self.get_event(event_id)
+
     def list_events(
         self, *, since: str | None = None, until: str | None = None, limit: int = 500
     ) -> list[StoredEvent]:
@@ -982,6 +1149,204 @@ class Store:
         self.db.execute(
             "UPDATE sessions SET project_id = ? WHERE id = ?", (project_id, session_id)
         )
+
+    # -- MCP servers ------------------------------------------------------
+
+    def list_mcp_servers(self, *, enabled_only: bool = False) -> list[StoredMCPServer]:
+        where = "WHERE enabled = 1" if enabled_only else ""
+        rows = self.db.query(
+            f"SELECT * FROM mcp_servers {where} ORDER BY name COLLATE NOCASE"
+        )
+        return [StoredMCPServer(**dict(row)) for row in rows]
+
+    def get_mcp_server(self, server_id: str) -> StoredMCPServer | None:
+        row = self.db.query_one("SELECT * FROM mcp_servers WHERE id = ?", (server_id,))
+        return StoredMCPServer(**dict(row)) if row else None
+
+    def get_mcp_server_by_name(self, name: str) -> StoredMCPServer | None:
+        row = self.db.query_one("SELECT * FROM mcp_servers WHERE name = ?", (name.strip(),))
+        return StoredMCPServer(**dict(row)) if row else None
+
+    def add_mcp_server(
+        self,
+        name: str,
+        transport: str,
+        *,
+        command: str | None = None,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+        url: str | None = None,
+        headers: dict[str, str] | None = None,
+        auto_approve: list[str] | None = None,
+        enabled: bool = True,
+        description: str | None = None,
+        homepage: str | None = None,
+    ) -> StoredMCPServer:
+        server_id = _new_id("mcp")
+        now = _now()
+        args_json = json.dumps(args) if args is not None else None
+        env_json = json.dumps(env) if env is not None else None
+        headers_json = json.dumps(headers) if headers is not None else None
+        auto_approve_json = json.dumps(auto_approve) if auto_approve is not None else None
+        enabled_int = 1 if enabled else 0
+
+        self.db.execute(
+            """
+            INSERT INTO mcp_servers (
+                id, name, transport, command, args, env, cwd, url,
+                headers, auto_approve, enabled, description, created_at, updated_at,
+                homepage
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                server_id,
+                name.strip(),
+                transport.strip().lower(),
+                command.strip() if command else None,
+                args_json,
+                env_json,
+                cwd.strip() if cwd else None,
+                url.strip() if url else None,
+                headers_json,
+                auto_approve_json,
+                enabled_int,
+                description.strip() if description else None,
+                now,
+                now,
+                homepage.strip() if homepage else None,
+            ),
+        )
+        return StoredMCPServer(
+            id=server_id,
+            name=name.strip(),
+            transport=transport.strip().lower(),
+            command=command.strip() if command else None,
+            args=args_json,
+            env=env_json,
+            cwd=cwd.strip() if cwd else None,
+            url=url.strip() if url else None,
+            headers=headers_json,
+            auto_approve=auto_approve_json,
+            enabled=enabled_int,
+            description=description.strip() if description else None,
+            created_at=now,
+            updated_at=now,
+            homepage=homepage.strip() if homepage else None,
+        )
+
+    def update_mcp_server(
+        self,
+        server_id: str,
+        *,
+        name: str | None = None,
+        transport: str | None = None,
+        command: str | None = None,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+        url: str | None = None,
+        headers: dict[str, str] | None = None,
+        auto_approve: list[str] | None = None,
+        enabled: bool | None = None,
+        description: str | None = None,
+    ) -> StoredMCPServer | None:
+        current = self.get_mcp_server(server_id)
+        if not current:
+            return None
+
+        now = _now()
+        new_name = name.strip() if name is not None else current.name
+        new_transport = transport.strip().lower() if transport is not None else current.transport
+        new_command = command.strip() if command is not None else current.command
+        new_args = json.dumps(args) if args is not None else current.args
+        new_env = json.dumps(env) if env is not None else current.env
+        new_cwd = cwd.strip() if cwd is not None else current.cwd
+        new_url = url.strip() if url is not None else current.url
+        new_headers = json.dumps(headers) if headers is not None else current.headers
+        new_auto_approve = (
+            json.dumps(auto_approve) if auto_approve is not None else current.auto_approve
+        )
+        new_enabled = (1 if enabled else 0) if enabled is not None else current.enabled
+        new_description = description.strip() if description is not None else current.description
+
+        self.db.execute(
+            """
+            UPDATE mcp_servers
+               SET name = ?, transport = ?, command = ?, args = ?, env = ?,
+                   cwd = ?, url = ?, headers = ?, auto_approve = ?, enabled = ?,
+                   description = ?, updated_at = ?
+             WHERE id = ?
+            """,
+            (
+                new_name,
+                new_transport,
+                new_command,
+                new_args,
+                new_env,
+                new_cwd,
+                new_url,
+                new_headers,
+                new_auto_approve,
+                new_enabled,
+                new_description,
+                now,
+                server_id,
+            ),
+        )
+        return self.get_mcp_server(server_id)
+
+    # -- MCP icons --------------------------------------------------------
+    #
+    # Keyed by where the artwork came from, not by which server is wearing it:
+    # "site:<domain>" for a fetched logo, "server:<id>" for an uploaded one.
+    # Two servers pointing at the same service share one row, and deleting a
+    # server does not take the logo away from its sibling.
+
+    def get_mcp_icon(self, key: str) -> dict | None:
+        row = self.db.query_one(
+            "SELECT key, mime, data, source, fetched_at FROM mcp_icons WHERE key = ?",
+            (key,),
+        )
+        return dict(row) if row else None
+
+    def put_mcp_icon(self, key: str, *, mime: str, data: bytes, source: str) -> None:
+        self.db.execute(
+            """
+            INSERT INTO mcp_icons (key, mime, data, source, fetched_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                mime = excluded.mime,
+                data = excluded.data,
+                source = excluded.source,
+                fetched_at = excluded.fetched_at
+            """,
+            (key, mime, data, source, _now()),
+        )
+
+    def delete_mcp_icon(self, key: str) -> bool:
+        if not self.get_mcp_icon(key):
+            return False
+        self.db.execute("DELETE FROM mcp_icons WHERE key = ?", (key,))
+        return True
+
+    def delete_mcp_server(self, server_id: str) -> bool:
+        if not self.get_mcp_server(server_id):
+            return False
+        # The uploaded override goes with it; the site cache does not, because
+        # another server may be wearing the same logo.
+        self.delete_mcp_icon(f"server:{server_id}")
+        self.db.execute("DELETE FROM mcp_servers WHERE id = ?", (server_id,))
+        return True
+
+    def set_mcp_server_enabled(self, server_id: str, enabled: bool) -> bool:
+        if not self.get_mcp_server(server_id):
+            return False
+        self.db.execute(
+            "UPDATE mcp_servers SET enabled = ?, updated_at = ? WHERE id = ?",
+            (1 if enabled else 0, _now(), server_id),
+        )
+        return True
 
 def _fts_query(text: str) -> str:
     """A user's sentence as an FTS5 MATCH expression.

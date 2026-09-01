@@ -1,20 +1,57 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-/** First of the month, and first of the next one. */
-export function monthRange(cursor) {
-  const pad = (n) => String(n).padStart(2, "0");
-  const y = cursor.getFullYear();
-  const m = cursor.getMonth();
-  const next = new Date(y, m + 1, 1);
-  return {
-    since: `${y}-${pad(m + 1)}-01`,
-    // Exclusive, so no arithmetic about how long the month is.
-    until: `${next.getFullYear()}-${pad(next.getMonth() + 1)}-01`,
-  };
+const pad = (n) => String(n).padStart(2, "0");
+
+/** One date as YYYY-MM-DD, in local time -- the form the server stores. */
+export function iso(d) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 /**
- * The events in one month. Server-owned; this only mirrors it.
+ * Six weeks of cells covering the month, Monday-first.
+ *
+ * Always six rows, never five or seven: a grid that changes height as you page
+ * through the year makes everything below it jump, and the empty row costs one
+ * line of whitespace.
+ *
+ * Lives here rather than beside the grid that draws it because the fetch range
+ * is derived from it -- see gridRange. Two definitions of "which days are on
+ * screen" is exactly the bug this pairing exists to prevent.
+ */
+export function gridFor(cursor) {
+  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  // getDay() is Sunday-first; shift so Monday is 0.
+  const lead = (first.getDay() + 6) % 7;
+  const start = new Date(first);
+  start.setDate(1 - lead);
+  return Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return d;
+  });
+}
+
+/**
+ * The half-open range the grid actually shows.
+ *
+ * Not the month. The grid is six weeks, so paging to August draws the last
+ * days of July and the first days of September in the same view -- and asking
+ * the server for the month alone left every one of those cells permanently
+ * empty. An event the assistant had just added would be in the database, on
+ * screen as a date, and invisible, which reads as a skill that silently did
+ * nothing.
+ */
+export function gridRange(cursor) {
+  const cells = gridFor(cursor);
+  const end = new Date(cells[cells.length - 1]);
+  // `until` is exclusive, so it has to clear the last day rather than land on
+  // it -- otherwise everything on that day is dropped.
+  end.setDate(end.getDate() + 1);
+  return { since: iso(cells[0]), until: iso(end) };
+}
+
+/**
+ * The events the grid can display. Server-owned; this only mirrors it.
  *
  * Refetches when the month changes, and after any write -- the model can add
  * an event through a skill while this page is open, so the client's copy is
@@ -24,7 +61,7 @@ export function useCalendar(api, cursor) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const { since, until } = useMemo(() => monthRange(cursor), [cursor]);
+  const { since, until } = useMemo(() => gridRange(cursor), [cursor]);
 
   const refresh = useCallback(async () => {
     setLoading(true);

@@ -299,6 +299,67 @@ MIGRATIONS: list[str] = [
 
     CREATE INDEX idx_sessions_project ON sessions(project_id, updated_at);
     """,
+    # 9 -- database-backed MCP servers.
+    #
+    # Allows MCP server configurations (stdio, sse, http) to live in SQLite
+    # alongside messages and memory, enabling user-configured skills without
+    # writing Python or restarting the server.
+    """
+    CREATE TABLE mcp_servers (
+      id           TEXT PRIMARY KEY,
+      name         TEXT NOT NULL UNIQUE,
+      transport    TEXT NOT NULL,          -- stdio | sse | http | websocket
+      command      TEXT,                   -- for stdio
+      args         TEXT,                   -- JSON array of strings
+      env          TEXT,                   -- JSON object of key-value pairs
+      cwd          TEXT,
+      url          TEXT,                   -- for sse | http | websocket
+      headers      TEXT,                   -- JSON object
+      auto_approve TEXT,                   -- JSON array of tool names
+      enabled      INTEGER NOT NULL DEFAULT 1,
+      description  TEXT,
+      created_at   INTEGER NOT NULL,
+      updated_at   INTEGER NOT NULL
+    );
+
+    CREATE INDEX idx_mcp_servers_enabled ON mcp_servers(enabled);
+    """,
+    # 10 -- where and when the user was when a conversation started.
+    #
+    # Recorded per session rather than globally: the answer is a property of
+    # the device that opened the conversation, and the whole point is that the
+    # phone in the kitchen and the server in the cupboard disagree. Nullable
+    # throughout -- an API client that reports nothing is a normal caller, not
+    # a broken one, and every session that existed before this migration has
+    # nothing to say.
+    """
+    ALTER TABLE sessions ADD COLUMN tz TEXT;          -- IANA name, e.g. Europe/London
+    ALTER TABLE sessions ADD COLUMN locale TEXT;      -- BCP-47 tag, e.g. en-GB
+    ALTER TABLE sessions ADD COLUMN utc_offset INTEGER;  -- minutes east of UTC
+    ALTER TABLE sessions ADD COLUMN region TEXT;      -- display name, e.g. United Kingdom
+    """,
+    # 11 -- logos for MCP servers.
+    #
+    # `homepage` is where to look for one: a preset declares it, a custom
+    # server infers it from its endpoint, and a stdio server that names neither
+    # simply has no logo to find.
+    #
+    # Icons are cached by *source* rather than per server, so two servers on
+    # one domain share a row and a re-added server is instant. A key is either
+    # "site:<domain>" for something fetched, or "server:<id>" for one the
+    # reader uploaded -- the second wins, which is what makes an upload an
+    # override rather than a race with the fetcher.
+    """
+    ALTER TABLE mcp_servers ADD COLUMN homepage TEXT;
+
+    CREATE TABLE mcp_icons (
+      key        TEXT PRIMARY KEY,   -- site:<domain> | server:<id>
+      mime       TEXT NOT NULL,
+      data       BLOB NOT NULL,
+      source     TEXT,               -- the URL it came from, or 'upload'
+      fetched_at INTEGER NOT NULL
+    );
+    """,
 ]
 
 

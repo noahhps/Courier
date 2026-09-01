@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 
 from . import attachments as files
 from .config import Settings, ThinkingLevel
 from .memory import MEMORY_DEFAULTS
+from .situation import Situation, render as render_situation
 from .providers import (
     Chunk,
     ContextOverflow,
@@ -27,6 +29,8 @@ from .providers import (
 )
 from .skills.registry import Registry
 from .store import Store, StoredAttachment, StoredMessage
+
+
 
 
 def estimate_tokens(text: str) -> int:
@@ -90,8 +94,22 @@ class Orchestrator:
 
     # -- prompt assembly --------------------------------------------------
 
-    def build_system_prompt(self) -> tuple[str, list[str]]:
-        """The preamble, then whatever is remembered. Returns (prompt, fact ids).
+    def build_system_prompt(self, session_id: str | None = None) -> tuple[str, list[str]]:
+        """The preamble, then where the user is, then whatever is remembered.
+
+        Returns (prompt, fact ids).
+
+        Three sections, ordered by how often each changes, because everything
+        after the first edit is cache that has to be paid for again:
+
+        * the preamble never changes;
+        * the situation is captured once when the conversation starts and is
+          fixed for its lifetime;
+        * facts can be rewritten by the curation pass after *any* turn.
+
+        So facts stay last. Putting the situation after them would throw away
+        the situation's cache every time a fact was learned, for a string that
+        had not moved.
 
         Facts come *after* the static preamble, never before or inside it: the
         preamble is the cacheable prefix, and appending means editing memory
@@ -107,23 +125,51 @@ class Orchestrator:
         assembling a prompt, and a prompt builder that writes to the database
         is a prompt builder you cannot call twice.
         """
-        preamble = self.settings.system_preamble
+        prompt = self.settings.system_preamble
+
+        situation = self._situation_block(session_id)
+        if situation:
+            prompt = f"{prompt}\n\n{situation}"
+
         if not self._memory_enabled():
-            return preamble, []
+            return prompt, []
 
         facts = self.store.active_facts(limit=self.settings.memory_max_facts)
         if not facts:
-            return preamble, []
+            return prompt, []
 
         lines = "\n".join(
             f"- {fact.text[: self.settings.memory_fact_chars]}" for fact in facts
         )
         return (
-            f"{preamble}\n\n"
+            f"{prompt}\n\n"
             "What you already know about the user, from previous "
             f"conversations:\n{lines}",
             [fact.id for fact in facts],
         )
+
+    def _situation_block(self, session_id: str | None) -> str:
+        """The user's time and rough whereabouts, as their device reported them.
+
+        Empty for a session that never said -- an API client with no browser
+        behind it is an ordinary caller. Saying nothing is the right answer
+        there: the preamble already tells the model to admit it does not know
+        the date, and the server's own clock would be an answer to a different
+        question.
+        """
+        if not session_id:
+            return ""
+        situation = self.store.session_situation(session_id)
+        if not situation.known:
+            return ""
+        session = self.store.get_session(session_id)
+        if not session:
+            return ""
+        # created_at is milliseconds, and is the moment the conversation began
+        # rather than the moment this prompt is being assembled -- which is the
+        # whole reason the block is stable enough to cache.
+        started = datetime.fromtimestamp(session["created_at"] / 1000, tz=timezone.utc)
+        return render_situation(situation, started)
 
     def _memory_enabled(self) -> bool:
         """The "Remember between chats" switch, checked where it matters.
@@ -141,6 +187,7 @@ class Orchestrator:
         *,
         budget: int | None = None,
         system: str | None = None,
+        session_id: str | None = None,
     ) -> list[Message]:
         """Most recent turns that fit the budget, oldest-first.
 
@@ -160,7 +207,10 @@ class Orchestrator:
         # the two calls could disagree if a fact were edited between them,
         # charging the window for a prompt it did not send.
         if system is None:
-            system, _ = self.build_system_prompt()
+            # session_id matters here only for the budget: without it the
+            # prompt built for costing would be missing the situation block
+            # that the prompt actually sent contains.
+            system, _ = self.build_system_prompt(session_id)
         budget -= estimate_tokens(system)
 
         # Which images ride along is decided first, newest backwards, so the
@@ -217,7 +267,7 @@ class Orchestrator:
         history = self.store.list_messages(session_id)
         # Bytes, not just names: this is the one call that needs them.
         stored_files = self.store.attachments_for_session(session_id, with_data=True)
-        system, fact_ids = self.build_system_prompt()
+        system, fact_ids = self.build_system_prompt(session_id)
         window = self.build_window(history, stored_files, system=system)
         # One batched update, not one statement per fact per turn. This is what
         # "12 answers" under a fact on the memory page is counting, and what
@@ -302,7 +352,7 @@ class Orchestrator:
                     # for. `finally` persists whatever this list holds.
                     record = {"name": call.name, "arguments": call.arguments}
                     used.append(record)
-                    result = await self._run_skill(call)
+                    result = await self._run_skill(call, session_id)
                     record["result"] = result
                     yield _sse("tool_result", {"name": call.name, "text": result})
                     window.append(
@@ -374,7 +424,7 @@ class Orchestrator:
         async for chunk in provider.stream(reduced, think=think, tools=tools):
             yield chunk
 
-    async def _run_skill(self, call) -> str:
+    async def _run_skill(self, call, session_id: str | None = None) -> str:
         """One skill call, reduced to text the model can read.
 
         Every failure returns rather than raises. A model that mistypes an
@@ -390,8 +440,13 @@ class Orchestrator:
             )
         if not skill.enabled:
             return f"{call.name} is switched off."
+        arguments = dict(call.arguments)
+        if skill.wants_context and session_id:
+            # Assigned after the copy, so a model that hallucinates a `context`
+            # argument cannot talk over the real one.
+            arguments["context"] = self.store.session_situation(session_id)
         try:
-            result = await skill.use(**call.arguments)
+            result = await skill.use(**arguments)
         except TypeError as exc:
             # Almost always a hallucinated or missing argument name.
             return f"{call.name} was called wrongly: {exc}"
@@ -533,14 +588,16 @@ def _silent_turn_reason(final: Chunk | None) -> str:
     anything.
     """
     if final is not None and final.tool_calls:
-        # The model asked for a skill and there is no loop to run one. This is
-        # the expected failure until run_turn grows one; the frame exists so it
-        # says so out loud instead of hanging.
-        asked = ", ".join(call.name for call in final.tool_calls) or "a skill"
+        # The loop ran its full allowance of rounds and the model was still
+        # asking for more rather than writing an answer -- so the last round's
+        # calls were never run. Naming them is the useful part: it is almost
+        # always the same skill over and over, and the fix is in what that
+        # skill returns rather than anywhere near here.
+        asked = ", ".join(sorted({call.name for call in final.tool_calls})) or "a skill"
         return (
-            f"The model asked to use {asked}, but nothing here can run a skill "
-            "yet -- the turn loop hasn't been built. Its request was received "
-            "and discarded."
+            f"The model used all {MAX_TOOL_ROUNDS} rounds of skill calls without "
+            f"writing an answer, and was still asking for {asked}. Run "
+            "`python -m tools.why_silent` to see what it was told each time."
         )
     return (
         "The model finished without saying anything. That usually means it "

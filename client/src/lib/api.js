@@ -1,5 +1,7 @@
 // Transport. Knows about HTTP and SSE framing; knows nothing about React.
 
+import { clientContext } from "./clientContext";
+
 export class UnauthorizedError extends Error {
   constructor() {
     super("unauthorized");
@@ -95,6 +97,56 @@ export function createApi(token, onUnauthorized = () => {}) {
     request,
     status: () => json("/status"),
     listSkills: () => json("/skills"),
+    listTools: () => json("/tools"),
+    listMcpServers: () => json("/mcp/servers"),
+    listMcpPresets: () => json("/mcp/presets"),
+    createMcpServer: (server) =>
+      json("/mcp/servers", { method: "POST", body: JSON.stringify(server) }),
+    instantiateMcpPreset: (data) =>
+      json("/mcp/presets/instantiate", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    updateMcpServer: (id, patch) =>
+      json("/mcp/servers/" + encodeURIComponent(id), {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    deleteMcpServer: (id) =>
+      request("/mcp/servers/" + encodeURIComponent(id), { method: "DELETE" }),
+    syncMcpServer: (id) =>
+      json("/mcp/servers/" + encodeURIComponent(id) + "/sync", {
+        method: "POST",
+      }),
+
+    // -- MCP icons and import -------------------------------------------
+    // Blobs, not URLs, for the same reason attachments are: these endpoints
+    // are authenticated, and a bare <img src> cannot set a bearer header, so
+    // it would 401 on every icon. The bytes come through fetch and get wrapped
+    // in an object URL locally.
+    mcpServerIcon: async (id) =>
+      (await request("/mcp/servers/" + encodeURIComponent(id) + "/icon")).blob(),
+    mcpPresetIcon: async (id) =>
+      (await request("/mcp/presets/" + encodeURIComponent(id) + "/icon")).blob(),
+    uploadMcpIcon: (id, data, mime) =>
+      json("/mcp/servers/" + encodeURIComponent(id) + "/icon", {
+        method: "PUT",
+        body: JSON.stringify({ data, mime }),
+      }),
+    clearMcpIcon: (id) =>
+      json("/mcp/servers/" + encodeURIComponent(id) + "/icon", { method: "DELETE" }),
+    refreshMcpIcon: (id) =>
+      json("/mcp/servers/" + encodeURIComponent(id) + "/icon/refresh", {
+        method: "POST",
+      }),
+    importMcpServers: (config, enabled = true) =>
+      json("/mcp/servers/import", {
+        method: "POST",
+        body: JSON.stringify({ config, enabled }),
+      }),
+    mcpSettings: () => json("/mcp/settings"),
+    setMcpSettings: (patch) =>
+      json("/mcp/settings", { method: "PATCH", body: JSON.stringify(patch) }),
     listEvents: (since, until) =>
       json(`/events?since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`),
     createEvent: (event) =>
@@ -111,7 +163,11 @@ export function createApi(token, onUnauthorized = () => {}) {
         body: JSON.stringify({ enabled }),
       }),
     listSessions: () => json("/sessions"),
-    createSession: () => json("/sessions", { method: "POST" }),
+    createSession: () =>
+      json("/sessions", {
+        method: "POST",
+        body: JSON.stringify({ client: clientContext() }),
+      }),
     listProjects: () => json("/projects"),
     createProject: (name) =>
       json("/projects", { method: "POST", body: JSON.stringify({ name }) }),
@@ -149,6 +205,12 @@ export function createApi(token, onUnauthorized = () => {}) {
           attachments: attachments.map(({ name, mime, data }) => ({ name, mime, data })),
           think: thinkingLevel,
           provider,
+          // Sent every time, kept only the first time. This is the path that
+          // matters most: the composer posts here with a null session_id to
+          // start a conversation, so without it a new chat begun by typing --
+          // rather than by pressing New -- would know nothing about the device
+          // that started it.
+          client: clientContext(),
         }),
       }),
     // A blob, not a URL: the endpoint is authenticated, so the bytes have to

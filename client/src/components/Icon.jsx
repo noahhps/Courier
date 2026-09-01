@@ -54,6 +54,21 @@ const FILES = {
   // silicon it has.
   memory: "/memory.svg",
   skills: "/skills.svg",
+  // The rail's Tools destination has been asking for this by name since it was
+  // added; the file was in public/ and never registered here, so `Icon` fell
+  // through to the inline branch and drew a path of `undefined` -- an empty
+  // 24x24 box, which reads as a missing icon rather than as a bug.
+  tools: "/tools.svg",
+  // Which MCP server a tool came from. These are the fallback now rather than
+  // the rule: an MCP server wears its own logo where one can be fetched (see
+  // ServiceIcon), because a list of fourteen services is read as brands and a
+  // wall of identical silhouettes is the slowest way to find one. These stay
+  // for the handful whose sites offer no icon, and for the small inline tags
+  // where a Material glyph still sits better than a logo would.
+  mail: "/mail.svg",
+  design: "/design.svg",
+  apps: "/apps.svg",
+  device_hub: "/device_hub.svg",
 };
 
 export function Icon({ name, badge }) {

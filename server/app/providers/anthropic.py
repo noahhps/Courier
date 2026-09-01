@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator, Sequence
+from typing import Any
 
-from .base import Chunk, ContextOverflow, Message, ProviderError
+from .base import Chunk, ContextOverflow, Message, ProviderError, ToolCall
 
 # Fallback answers should arrive quickly; keep the reasoning budget modest.
 _EFFORT = os.environ.get("ANTHROPIC_EFFORT", "medium")
@@ -34,8 +35,6 @@ class AnthropicProvider:
                 raise ProviderError(
                     "cloud fallback requires `pip install anthropic`"
                 ) from exc
-            # Zero-arg construction resolves ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN,
-            # or an `ant auth login` profile, in that order.
             self._client = AsyncAnthropic()
         return self._client
 
@@ -48,29 +47,29 @@ class AnthropicProvider:
     ) -> AsyncIterator[Chunk]:
         client = self._ensure_client()
 
-        # Anthropic takes the system prompt as its own parameter rather than a
-        # message; everything else maps across directly.
+        # Anthropic takes the system prompt as its own parameter
         system = "\n\n".join(m.content for m in messages if m.role == "system")
-        turns = [
-            {"role": m.role, "content": _content(m)}
-            for m in messages
-            if m.role in ("user", "assistant")
-        ]
+        turns = _build_turns(messages)
 
         request: dict = {
             "model": self.model,
             "max_tokens": self.max_tokens,
             "messages": turns,
-            # The local names map cleanly to Anthropic's effort levels. It is
-            # not the same reasoning implementation as gpt-oss, but a user
-            # choosing a slower, deeper answer should keep that intent after
-            # a cloud fallback.
             "output_config": {"effort": think or _EFFORT},
         }
         if system:
             request["system"] = system
         if tools:
-            request["tools"] = list(tools)
+            request["tools"] = [
+                {
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "input_schema": t.get("parameters")
+                    or {"type": "object", "properties": {}},
+                }
+                for t in tools
+            ]
+
         try:
             async with client.messages.stream(**request) as stream:
                 async for text in stream.text_stream:
@@ -80,11 +79,23 @@ class AnthropicProvider:
             if final.stop_reason == "refusal":
                 raise ProviderError("cloud model declined the request")
 
+            tool_calls: list[ToolCall] = []
+            for block in getattr(final, "content", []):
+                if getattr(block, "type", "") == "tool_use":
+                    tool_calls.append(
+                        ToolCall(
+                            id=str(block.id),
+                            name=str(block.name),
+                            arguments=dict(getattr(block, "input", {}) or {}),
+                        )
+                    )
+
             yield Chunk(
                 text="",
                 done=True,
-                prompt_tokens=final.usage.input_tokens,
-                completion_tokens=final.usage.output_tokens,
+                tool_calls=tuple(tool_calls),
+                prompt_tokens=final.usage.input_tokens if final.usage else None,
+                completion_tokens=final.usage.output_tokens if final.usage else None,
             )
         except ProviderError:
             raise
@@ -121,14 +132,48 @@ def _translate_error(exc: Exception) -> ProviderError:
     return ProviderError(f"{name}: {text[:500]}", retryable=retryable)
 
 
-def _content(message: Message):
-    """A message body in the Messages API shape.
+def _build_turns(messages: Sequence[Message]) -> list[dict[str, Any]]:
+    """Build conversation turns formatted for the Anthropic Messages API."""
+    turns: list[dict[str, Any]] = []
 
-    Plain text stays a plain string -- the API accepts either, and keeping the
-    common case simple keeps the request readable. Images turn the body into a
-    block list, with the image first: the model reads the picture, then the
-    question about it.
-    """
+    for m in messages:
+        if m.role == "system":
+            continue
+
+        if m.role == "tool":
+            # Anthropic expects tool results as role="user" content blocks
+            tool_result_block = {
+                "type": "tool_result",
+                "tool_use_id": m.tool_call_id or "call_0",
+                "content": m.content,
+            }
+            if turns and turns[-1]["role"] == "user" and isinstance(turns[-1]["content"], list):
+                turns[-1]["content"].append(tool_result_block)
+            else:
+                turns.append({"role": "user", "content": [tool_result_block]})
+
+        elif m.role == "assistant":
+            blocks: list[dict[str, Any]] = []
+            if m.content:
+                blocks.append({"type": "text", "text": m.content})
+            for call in m.tool_calls:
+                blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": call.id,
+                        "name": call.name,
+                        "input": call.arguments,
+                    }
+                )
+            turns.append({"role": "assistant", "content": blocks or m.content})
+
+        elif m.role == "user":
+            turns.append({"role": "user", "content": _content(m)})
+
+    return turns
+
+
+def _content(message: Message):
     if not message.images:
         return message.content
 

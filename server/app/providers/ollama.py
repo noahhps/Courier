@@ -55,14 +55,22 @@ class OllamaProvider:
         # shape varies by model.
         carries_images = any(m.images for m in messages)
         if think is not None and not carries_images:
-            payload["think"] = think;
-        
+            payload["think"] = think
+
         # Ollama wants each schema wrapped as a function declaration. That
         # wrapper is this backend's spelling, so it is applied here rather than
         # baked into Skill.schema() -- Anthropic spells the same thing
         # differently, and neither shape belongs upstream.
         if tools:
             payload["tools"] = [{"type": "function", "function": t} for t in tools]
+
+        # Ollama sends a tool call on its own event, ahead of the stop event,
+        # and the `done` event that follows carries none -- so reading calls
+        # off `done` alone loses every one of them, and the turn ends looking
+        # like a model that answered with silence. They are collected here and
+        # released with the done chunk, which is the shape the orchestrator
+        # expects: a call is only actionable once the model has stopped.
+        pending: list[ToolCall] = []
 
         try:
             async with self._client.stream("POST", "/api/chat", json=payload) as response:
@@ -84,19 +92,17 @@ class OllamaProvider:
                     message = event.get("message") or {}
                     text = message.get("content", "")
                     thinking = message.get("thinking", "")
-                    raw = message.get("tool_calls") or []
-                    calls = tuple(_parse_call(c, i) for i, c in enumerate(raw))
+                    for entry in message.get("tool_calls") or ():
+                        pending.append(_parse_call(entry, len(pending)))
 
-                    # `done` is not an alternative to the rest -- the final
-                    # event carries the stop flag, the last of the content and
-                    # any tool calls together. So the calls are parsed above,
-                    # before any branching, and ride out on the done chunk.
+                    # The done event carries the stop flag and the last of the
+                    # content; the calls that arrived earlier ride out with it.
                     if event.get("done"):
                         yield Chunk(
                             text=text,
                             thinking=thinking,
                             done=True,
-                            tool_calls=calls,
+                            tool_calls=tuple(pending),
                             prompt_tokens=event.get("prompt_eval_count"),
                             completion_tokens=event.get("eval_count"),
                         )
@@ -153,9 +159,10 @@ def _encode(message: Message) -> dict:
 def _parse_call(raw: dict, index: int) -> ToolCall:
     """One entry of Ollama's `tool_calls` array as the seam's shape.
 
-    Ollama sends complete objects rather than deltas, and issues no id, so one
-    is minted from the position in the array. That is enough: an id only has to
-    pair a call with its result within a single turn.
+    Ollama sends complete objects rather than deltas. Recent versions issue an
+    id; older ones do not, so one is minted from the position in the stream.
+    Either is enough -- an id only has to pair a call with its result within a
+    single turn.
 
     `arguments` is normally a decoded object, but a model under load will
     sometimes emit it as a JSON string. Normalising here means nothing above
@@ -173,18 +180,10 @@ def _parse_call(raw: dict, index: int) -> ToolCall:
     if not isinstance(arguments, dict):
         arguments = {}
     return ToolCall(
-        id=f"call_{index}",
+        id=str(raw.get("id") or f"call_{index}"),
         name=function.get("name", ""),
         arguments=arguments,
     )
-
-    if message.tool_calls:
-        encoded["tool_calls"] = [
-            {"function": {"name": c.name, "arguments": c.arguments}}
-            for c in message.tool_calls
-        ]
-    if message.tool_name:
-        encoded["tool_name"] = message.tool_name
 
 
 def _translate_error(status: int, body: str) -> ProviderError:

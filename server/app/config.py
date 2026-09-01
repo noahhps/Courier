@@ -68,7 +68,7 @@ class Settings:
 
     # --- inference -------------------------------------------------------
     ollama_url: str = field(default_factory=lambda: _env("OLLAMA_URL", "http://127.0.0.1:11434"))
-    ollama_model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", "gpt-oss"))
+    ollama_model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", "qwen3.6:35b-a3b"))
     # gpt-oss uses a three-level reasoning effort, not a boolean. This is the
     # fallback when an API caller does not choose a level of its own.
     ollama_think: ThinkingLevel = field(
@@ -182,8 +182,9 @@ class Settings:
             "Report what it told you; do not narrate the machinery unless "
             "asked. If a skill fails, say what failed rather than answering as "
             "though it had worked. "
-            "Write dates as DD-MM-YYYY, and say plainly when you do not know "
-            "the current date rather than guessing at it.",
+            "Write dates as DD-MM-YYYY. Any date and time you are given is "
+            "when this conversation started, not the current moment -- use a "
+            "skill if exactly when matters.",
         )
     )
 

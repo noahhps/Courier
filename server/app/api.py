@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import time
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -20,6 +23,9 @@ from .memory.facts import Curator
 from .memory.indexer import Indexer
 from .orchestrator import Orchestrator
 from .providers import ProviderRouter
+from .mcp import icons as mcp_icons
+from .mcp.settings import MCP_DEFAULTS
+from .situation import Situation
 from .store import Store
 from .skills.registry import Registry
 
@@ -37,12 +43,37 @@ class AttachmentIn(BaseModel):
     data: str  # base64, without the data: URL prefix
 
 
+class ClientContext(BaseModel):
+    """What the browser knows about itself, and nothing more.
+
+    Coarse by construction: an IANA zone, a language tag, a UTC offset and a
+    country name. No coordinates, no permission prompt, no outbound lookup --
+    the browser already holds all four, and they are enough to say when it is
+    and roughly where. Every one is re-validated in `situation`; these limits
+    only keep an absurd payload from reaching that far.
+    """
+
+    timezone: str | None = Field(default=None, max_length=64)
+    locale: str | None = Field(default=None, max_length=35)
+    # Minutes east of UTC -- the negation of Date.getTimezoneOffset().
+    utc_offset: int | None = Field(default=None, ge=-840, le=840)
+    region: str | None = Field(default=None, max_length=80)
+
+
+class SessionIn(BaseModel):
+    client: ClientContext | None = None
+
+
 class ChatRequest(BaseModel):
     # Empty is allowed only alongside a file: dropping in a screenshot with no
     # sentence is a real way to ask a question, but an empty POST is not.
     message: str = Field(default="", max_length=200_000)
     session_id: str | None = None
     attachments: list[AttachmentIn] = Field(default_factory=list)
+    # Sent with every message, recorded only on the first one. A conversation
+    # that starts from the phone should say so even when the client opened it
+    # implicitly by posting here without a session_id.
+    client: ClientContext | None = None
     # "local" | "cloud" | None (auto). Never switch silently -- the client
     # asks for a specific provider or accepts whatever the router picks.
     provider: str | None = None
@@ -140,6 +171,72 @@ class SessionProject(BaseModel):
     project_id: str | None = None
 
 
+class MCPServerIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    transport: str = Field(default="stdio", pattern="^(stdio|sse|http|streamable-http)$")
+    command: str | None = Field(default=None, max_length=500)
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    cwd: str | None = Field(default=None, max_length=500)
+    url: str | None = Field(default=None, max_length=1000)
+    headers: dict[str, str] = Field(default_factory=dict)
+    auto_approve: list[str] = Field(default_factory=list, alias="autoApprove")
+    enabled: bool = True
+    description: str | None = Field(default=None, max_length=1000)
+    # Where to look for this service's logo. Inferred from `url` when absent,
+    # which is why a custom HTTP server needs to say nothing to get an icon.
+    homepage: str | None = Field(default=None, max_length=253)
+
+
+class MCPServerPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    transport: str | None = Field(default=None, pattern="^(stdio|sse|http|streamable-http)$")
+    command: str | None = Field(default=None, max_length=500)
+    args: list[str] | None = None
+    env: dict[str, str] | None = None
+    cwd: str | None = Field(default=None, max_length=500)
+    url: str | None = Field(default=None, max_length=1000)
+    headers: dict[str, str] | None = None
+    auto_approve: list[str] | None = Field(default=None, alias="autoApprove")
+    enabled: bool | None = None
+    description: str | None = Field(default=None, max_length=1000)
+    homepage: str | None = Field(default=None, max_length=253)
+
+
+class MCPIconIn(BaseModel):
+    """A logo the reader supplied themselves, base64 as everything else here is."""
+
+    data: str = Field(min_length=1, max_length=700_000)  # ~512KB decoded
+    mime: str | None = Field(default=None, max_length=100)
+
+
+class MCPSettingsIn(BaseModel):
+    fetch_icons: bool | None = None
+
+
+class MCPImportIn(BaseModel):
+    """The `mcpServers` block every MCP install page hands out, pasted verbatim.
+
+    Accepts either the whole config file or just the inner mapping, because
+    both are what people actually copy.
+    """
+
+    config: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class MCPPresetIn(BaseModel):
+    preset: str = Field(min_length=1, max_length=100)
+    name: str | None = Field(default=None, max_length=100)
+    # What the preset's ${PLACEHOLDER}s should be filled in with. `env` is the
+    # older spelling of the same thing and still works; both are merged, and a
+    # value lands wherever the preset put the placeholder -- env, args, or a
+    # header. Previously only `env` existed, so a preset whose secret lived in
+    # an Authorization header had no way to receive one.
+    values: dict[str, str] = Field(default_factory=dict)
+    env: dict[str, str] = Field(default_factory=dict)
+
+
 def build_router(
     store: Store,
     orchestrator: Orchestrator,
@@ -149,6 +246,7 @@ def build_router(
     settings: Settings,
     indexer: Indexer,
     curator: Curator,
+    mcp_manager: Any = None,
 ) -> APIRouter:
     router = APIRouter(dependencies=[Depends(auth)])
 
@@ -159,8 +257,13 @@ def build_router(
         return {"sessions": store.list_sessions()}
 
     @router.post("/sessions")
-    def create_session() -> dict:
-        return store.create_session()
+    def create_session(body: SessionIn | None = None) -> dict:
+        # Body-less POSTs still work: an older client, or curl, is a caller
+        # that simply has nothing to report about where it is.
+        client = body.client if body else None
+        return store.create_session(
+            situation=Situation.from_client(client.model_dump() if client else None)
+        )
 
     @router.get("/sessions/{session_id}")
     def get_session(session_id: str) -> dict:
@@ -283,12 +386,19 @@ def build_router(
         except AttachmentError as exc:
             raise HTTPException(400, str(exc)) from exc
 
+        situation = Situation.from_client(
+            body.client.model_dump() if body.client else None
+        )
+
         session_id = body.session_id
         if session_id:
             if not store.get_session(session_id):
                 raise HTTPException(404, "no such session")
+            # A no-op once the session knows where it started, which is the
+            # usual case by the second message.
+            store.set_session_situation(session_id, situation)
         else:
-            session_id = store.create_session()["id"]
+            session_id = store.create_session(situation=situation)["id"]
 
         async def frames():
             yield f'event: session\ndata: {{"session_id": "{session_id}"}}\n\n'
@@ -380,6 +490,12 @@ def build_router(
                     "available": skill.available,
                     "requires": skill.requires,
                     "configurable": hasattr(skill, "set_api_key"),
+                    # Which MCP server this came from, or None for a skill that
+                    # ships with the server. Sent as its own field because the
+                    # alternative is the client parsing it back out of
+                    # `requires` ("MCP server 'gmail'"), which makes a sentence
+                    # written for a person into a wire format.
+                    "server": getattr(skill, "server_name", None),
                 }
                 for name, skill in registry.all()
             ]
@@ -441,6 +557,7 @@ def build_router(
         if not key:
             registry.set_enabled(name, False)
         return {"name": name, "configured": bool(key), "available": skill.available}
+
 
     # -- documents --------------------------------------------------------
 
@@ -573,7 +690,396 @@ def build_router(
             status=body.status,
         ):
             raise HTTPException(404, "There is no such fact -- it may already be gone.")
+    # -- MCP servers ------------------------------------------------------
+
+    # An MCP server is recognised by its logo far faster than by its name, so
+    # each one is given the service's own -- fetched once from the service's
+    # site, cached, and overridable by upload. `icons.py` explains why this is
+    # the only place Courier fetches a URL a reader typed, and what it refuses.
+
+    def _icon_keys(server) -> tuple[str, str | None]:
+        """(uploaded key, site key). The upload wins where it exists."""
+        domain = mcp_icons.domain_for(homepage=server.homepage, url=server.url)
+        return f"server:{server.id}", (f"site:{domain}" if domain else None)
+
+    def _stored_icon(server) -> dict | None:
+        uploaded, site = _icon_keys(server)
+        return store.get_mcp_icon(uploaded) or (store.get_mcp_icon(site) if site else None)
+
+    async def _fetch_icon_quietly(server_id: str) -> None:
+        """Go and get a logo, after the response has already gone out.
+
+        Never raises and never blocks the caller: adding a server should not
+        wait on somebody else's website, and should not fail because of it.
+        """
+        try:
+            if not store.get_settings(MCP_DEFAULTS)["mcp.fetch_icons"]:
+                return
+            server = store.get_mcp_server(server_id)
+            if not server:
+                return
+            _, site = _icon_keys(server)
+            if not site or store.get_mcp_icon(site):
+                return  # nothing to look up, or another server already did
+            found = await mcp_icons.fetch_icon(site.removeprefix("site:"))
+            if found:
+                store.put_mcp_icon(
+                    site, mime=found.mime, data=found.data, source=found.source
+                )
+        except Exception:
+            pass
+
+    def _with_status(server, *, tools: list[str] | None = None, error: str | None = None) -> dict:
+        data = server.to_dict()
+        data["connected"] = mcp_manager.is_server_connected(server.name) if mcp_manager else False
+        data["tools"] = tools if tools is not None else (
+            mcp_manager.tools_for(server.name) if mcp_manager else []
+        )
+        data["error"] = error if error is not None else (
+            mcp_manager.last_error(server.name) if mcp_manager else None
+        )
+        # A flag, not the bytes: the endpoint is authenticated, so the client
+        # fetches it with the bearer header and wraps it in an object URL.
+        data["has_icon"] = _stored_icon(server) is not None
+        return data
+
+    @router.get("/mcp/presets")
+    def list_mcp_presets() -> dict:
+        from .mcp.presets import list_presets
+
+        presets = []
+        for preset in list_presets():
+            domain = mcp_icons.domain_for(
+                homepage=preset.get("homepage"), url=preset.get("url")
+            )
+            presets.append({**preset, "has_icon": bool(domain)})
+        return {"presets": presets}
+
+    @router.get("/mcp/presets/{preset_id}/icon")
+    async def get_mcp_preset_icon(preset_id: str) -> Response:
+        """The logo for a preset that has not been installed yet.
+
+        The gallery is where a logo earns its keep most -- picking one of
+        fourteen services from a wall of identical glyphs is the hard read --
+        so presets get the same treatment, cached under the same site key.
+        """
+        from .mcp.presets import get_preset
+
+        preset = get_preset(preset_id)
+        if not preset:
+            raise HTTPException(404, f"no preset named {preset_id!r}")
+        domain = mcp_icons.domain_for(homepage=preset.get("homepage"), url=preset.get("url"))
+        if not domain:
+            raise HTTPException(404, "this preset has no public website")
+
+        key = f"site:{domain}"
+        icon = store.get_mcp_icon(key)
+        if not icon:
+            if not store.get_settings(MCP_DEFAULTS)["mcp.fetch_icons"]:
+                raise HTTPException(404, "logo fetching is switched off")
+            found = await mcp_icons.fetch_icon(domain)
+            if not found:
+                raise HTTPException(404, "that site offers no icon")
+            store.put_mcp_icon(key, mime=found.mime, data=found.data, source=found.source)
+            icon = store.get_mcp_icon(key)
+
+        return Response(
+            content=icon["data"],
+            media_type=icon["mime"],
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
+
+    @router.get("/mcp/servers/{server_id}/icon")
+    def get_mcp_icon(server_id: str) -> Response:
+        server = store.get_mcp_server(server_id)
+        if not server:
+            raise HTTPException(404, "no such MCP server")
+        icon = _stored_icon(server)
+        if not icon:
+            raise HTTPException(404, "no icon for this server")
+        return Response(
+            content=icon["data"],
+            media_type=icon["mime"],
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
+
+    @router.put("/mcp/servers/{server_id}/icon")
+    def put_mcp_icon(server_id: str, body: MCPIconIn) -> dict:
+        server = store.get_mcp_server(server_id)
+        if not server:
+            raise HTTPException(404, "no such MCP server")
+        try:
+            raw = base64.b64decode(body.data, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(400, f"that is not valid base64: {exc}") from exc
+        if len(raw) > mcp_icons.MAX_ICON_BYTES:
+            raise HTTPException(400, "an icon has to be under 256KB")
+        # Sniffed, not trusted: whatever this is gets served back with a media
+        # type and rendered, so it has to actually be an image.
+        mime = mcp_icons.sniff(raw)
+        if not mime:
+            raise HTTPException(400, "that file is not a PNG, JPEG, GIF, WebP, ICO or SVG")
+        store.put_mcp_icon(f"server:{server_id}", mime=mime, data=raw, source="upload")
+        return {"ok": True, "mime": mime, "bytes": len(raw)}
+
+    @router.delete("/mcp/servers/{server_id}/icon")
+    async def delete_mcp_icon(server_id: str) -> dict:
+        """Drop the upload and go back to whatever the service's site offers."""
+        server = store.get_mcp_server(server_id)
+        if not server:
+            raise HTTPException(404, "no such MCP server")
+        removed = store.delete_mcp_icon(f"server:{server_id}")
+        await _fetch_icon_quietly(server_id)
+        return {"ok": True, "removed": removed, "has_icon": _stored_icon(server) is not None}
+
+    @router.post("/mcp/servers/{server_id}/icon/refresh")
+    async def refresh_mcp_icon(server_id: str) -> dict:
+        """Look the logo up again, ignoring what is cached for that site."""
+        server = store.get_mcp_server(server_id)
+        if not server:
+            raise HTTPException(404, "no such MCP server")
+        if not store.get_settings(MCP_DEFAULTS)["mcp.fetch_icons"]:
+            raise HTTPException(400, "logo fetching is switched off")
+        _, site = _icon_keys(server)
+        if not site:
+            raise HTTPException(
+                400,
+                "there is no public website to look at -- give the server a "
+                "homepage, or upload an icon.",
+            )
+        store.delete_mcp_icon(site)
+        await _fetch_icon_quietly(server_id)
+        return {"ok": True, "has_icon": _stored_icon(server) is not None}
+
+    @router.get("/mcp/servers")
+    def list_mcp_servers() -> dict:
+        return {"servers": [_with_status(server) for server in store.list_mcp_servers()]}
+
+    @router.post("/mcp/servers")
+    async def create_mcp_server(body: MCPServerIn) -> dict:
+        existing = store.get_mcp_server_by_name(body.name)
+        if existing:
+            raise HTTPException(400, f"An MCP server named {body.name!r} already exists")
+
+        server = store.add_mcp_server(
+            name=body.name,
+            transport=body.transport,
+            command=body.command,
+            args=body.args,
+            env=body.env,
+            cwd=body.cwd,
+            url=body.url,
+            headers=body.headers,
+            auto_approve=body.auto_approve,
+            enabled=body.enabled,
+            description=body.description,
+            homepage=body.homepage,
+        )
+        # Off the response path: a logo is decoration and should never be the
+        # reason adding a server feels slow, or the reason it fails.
+        asyncio.create_task(_fetch_icon_quietly(server.id))
+
+        tools: list[str] = []
+        if mcp_manager and server.enabled:
+            try:
+                tools = await mcp_manager.sync_server(server)
+            except Exception as exc:
+                return _with_status(server, tools=[], error=str(exc))
+
+        return _with_status(server, tools=tools)
+
+    @router.post("/mcp/presets/instantiate")
+    async def instantiate_mcp_preset(body: MCPPresetIn) -> dict:
+        from .mcp.presets import get_preset, missing_inputs, resolve_preset
+
+        preset = get_preset(body.preset)
+        if not preset:
+            raise HTTPException(404, f"No preset named {body.preset!r}")
+
+        server_name = body.name or preset["name"]
+        existing = store.get_mcp_server_by_name(server_name)
+        if existing:
+            raise HTTPException(400, f"An MCP server named {server_name!r} already exists")
+
+        values = {**body.env, **body.values}
+
+        # Fail loudly on a missing token rather than storing a server that will
+        # connect, get a 401, and report it as a network problem later.
+        missing = missing_inputs(preset, values)
+        if missing:
+            raise HTTPException(
+                400,
+                f"Preset {body.preset!r} needs {', '.join(missing)}. "
+                "Supply them in `values`, or set them in the server's environment.",
+            )
+
+        resolved = resolve_preset(preset, values)
+        # Anything the reader supplied that the preset did not declare a
+        # placeholder for still reaches the subprocess as an env var, which is
+        # how a custom flag on a preset server stays possible.
+        declared = {str(i.get("key")) for i in (preset.get("inputs") or []) if isinstance(i, dict)}
+        extra_env = {k: v for k, v in values.items() if k not in declared}
+        merged_env = {**(resolved.get("env") or {}), **extra_env}
+
+        server = store.add_mcp_server(
+            name=server_name,
+            transport=resolved.get("transport", "stdio"),
+            command=resolved.get("command"),
+            args=resolved.get("args"),
+            env=merged_env,
+            cwd=resolved.get("cwd"),
+            url=resolved.get("url"),
+            headers=resolved.get("headers"),
+            auto_approve=resolved.get("auto_approve"),
+            enabled=True,
+            description=resolved.get("description"),
+            homepage=resolved.get("homepage"),
+        )
+        asyncio.create_task(_fetch_icon_quietly(server.id))
+
+        tools: list[str] = []
+        if mcp_manager:
+            try:
+                tools = await mcp_manager.sync_server(server)
+            except Exception as exc:
+                return _with_status(server, tools=[], error=str(exc))
+
+        return _with_status(server, tools=tools)
+
+    @router.post("/mcp/servers/import")
+    async def import_mcp_servers(body: MCPImportIn) -> dict:
+        """Add servers from a pasted `mcpServers` config.
+
+        This is the shape every MCP install page hands out, so importing it is
+        how a server that has no preset gets added without retyping it field by
+        field into a form. Both wrappings are accepted -- the whole config file
+        and the bare mapping -- because both are what people copy.
+
+        Partial success is the normal outcome and is reported as such: one bad
+        entry in a block of six should not cost the other five.
+        """
+        from .mcp.importer import ImportError_, parse_mcp_config
+
+        try:
+            parsed = parse_mcp_config(body.config)
+        except ImportError_ as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if not parsed:
+            raise HTTPException(400, "no servers found in that config")
+
+        added: list[dict] = []
+        skipped: list[dict] = []
+        for spec in parsed:
+            if store.get_mcp_server_by_name(spec.name):
+                skipped.append({"name": spec.name, "reason": "a server by that name exists"})
+                continue
+            try:
+                server = store.add_mcp_server(
+                    name=spec.name,
+                    transport=spec.transport,
+                    command=spec.command,
+                    args=spec.args,
+                    env=spec.env,
+                    cwd=spec.cwd,
+                    url=spec.url,
+                    headers=spec.headers,
+                    enabled=body.enabled,
+                    description=spec.description,
+                    homepage=spec.homepage,
+                )
+            except Exception as exc:
+                skipped.append({"name": spec.name, "reason": str(exc)})
+                continue
+
+            asyncio.create_task(_fetch_icon_quietly(server.id))
+            error = None
+            tools: list[str] = []
+            if mcp_manager and body.enabled:
+                try:
+                    tools = await mcp_manager.sync_server(server)
+                except Exception as exc:
+                    error = str(exc)
+            added.append(_with_status(server, tools=tools, error=error))
+
+        return {"added": added, "skipped": skipped}
+
+    @router.get("/mcp/settings")
+    def get_mcp_settings() -> dict:
+        stored = store.get_settings(MCP_DEFAULTS)
+        return {key.split(".", 1)[1]: value for key, value in stored.items()}
+
+    @router.patch("/mcp/settings")
+    def set_mcp_settings(body: MCPSettingsIn) -> dict:
+        store.set_settings(
+            {f"mcp.{name}": value
+             for name, value in body.model_dump(exclude_none=True).items()}
+        )
+        stored = store.get_settings(MCP_DEFAULTS)
+        return {key.split(".", 1)[1]: value for key, value in stored.items()}
+
+    @router.patch("/mcp/servers/{server_id}")
+    async def update_mcp_server(server_id: str, body: MCPServerPatch) -> dict:
+        server = store.get_mcp_server(server_id)
+        if not server:
+            raise HTTPException(404, "no such MCP server")
+
+        updated = store.update_mcp_server(
+            server_id,
+            name=body.name,
+            transport=body.transport,
+            command=body.command,
+            args=body.args,
+            env=body.env,
+            cwd=body.cwd,
+            url=body.url,
+            headers=body.headers,
+            auto_approve=body.auto_approve,
+            enabled=body.enabled,
+            description=body.description,
+        )
+        if not updated:
+            raise HTTPException(404, "no such MCP server")
+
+        tools: list[str] = []
+        if mcp_manager:
+            try:
+                tools = await mcp_manager.sync_server(updated)
+            except Exception as exc:
+                return _with_status(updated, tools=[], error=str(exc))
+
+        return _with_status(updated, tools=tools)
+
+    @router.delete("/mcp/servers/{server_id}")
+    async def delete_mcp_server(server_id: str) -> dict:
+        server = store.get_mcp_server(server_id)
+        if not server:
+            raise HTTPException(404, "no such MCP server")
+
+        if mcp_manager:
+            await mcp_manager.disconnect_server(server.name)
+
+        store.delete_mcp_server(server_id)
         return {"ok": True}
+
+    @router.post("/mcp/servers/{server_id}/sync")
+    async def sync_mcp_server(server_id: str) -> dict:
+        server = store.get_mcp_server(server_id)
+        if not server:
+            raise HTTPException(404, "no such MCP server")
+
+        if not mcp_manager:
+            raise HTTPException(500, "MCP manager is not initialized")
+
+        try:
+            tools = await mcp_manager.sync_server(server)
+            return {
+                "ok": True,
+                "server": server.name,
+                "connected": mcp_manager.is_server_connected(server.name),
+                "tools": tools,
+            }
+        except Exception as exc:
+            raise HTTPException(500, f"Sync failed for '{server.name}': {exc}") from exc
 
     # -- status -----------------------------------------------------------
 

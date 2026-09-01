@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-import { useCalendar } from "../hooks/useCalendar";
+import { gridFor, iso, useCalendar } from "../hooks/useCalendar";
 import { useChat } from "../hooks/useChat";
 import { Icon } from "./Icon";
 
@@ -9,29 +9,6 @@ const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
-
-const pad = (n) => String(n).padStart(2, "0");
-const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
-/**
- * Six weeks of cells covering the month, Monday-first.
- *
- * Always six rows, never five or seven: a grid that changes height as you page
- * through the year makes everything below it jump, and the empty row costs one
- * line of whitespace.
- */
-function gridFor(cursor) {
-  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-  // getDay() is Sunday-first; shift so Monday is 0.
-  const lead = (first.getDay() + 6) % 7;
-  const start = new Date(first);
-  start.setDate(1 - lead);
-  return Array.from({ length: 42 }, (_, i) => {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    return d;
-  });
-}
 
 /* A conversation beside the calendar rather than a page away.
  *
@@ -120,6 +97,14 @@ export function Calendar({ api, onSessionsChanged }) {
   const cells = useMemo(() => gridFor(cursor), [cursor]);
   const today = iso(new Date());
   const dayEvents = byDay.get(picked) || [];
+  // `events` covers the whole six-week grid, including the days either side of
+  // the month. The label says "this month", so it has to count that and not
+  // what was fetched.
+  const thisMonth = useMemo(
+    () => events.filter((e) => Number(e.starts_at.slice(5, 7)) === cursor.getMonth() + 1
+      && Number(e.starts_at.slice(0, 4)) === cursor.getFullYear()).length,
+    [events, cursor],
+  );
 
   const step = (by) =>
     setCursor((was) => new Date(was.getFullYear(), was.getMonth() + by, 1));
@@ -178,7 +163,7 @@ export function Calendar({ api, onSessionsChanged }) {
             </span>
             <i />
             <span className="mi">
-              {loading ? "loading" : `${events.length} this month`}
+              {loading ? "loading" : `${thisMonth} this month`}
             </span>
           </div>
 

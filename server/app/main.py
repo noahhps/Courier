@@ -14,11 +14,12 @@ from .api import build_router
 from .auth import make_auth_dependency
 from .config import Settings, load_settings
 from .db import Database
+from .mcp import MCPManager
 from .memory.facts import Curator
 from .memory.indexer import Indexer
 from .orchestrator import Orchestrator
 from .providers import ProviderRouter
-from .skills.calendar import AddEvent, FindEvents, ListEvents
+from .skills.calendar import AddEvent, FindEvents, ListEvents, UpdateEvent
 from .skills.clock import Clock
 from .skills.document import DocumentWriter
 from .skills.recall import Recall
@@ -64,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     registry = Registry()
     registry.register(Clock())
     registry.register(AddEvent(store))
+    registry.register(UpdateEvent(store))
     registry.register(ListEvents(store))
     registry.register(FindEvents(store))
     registry.register(DocumentWriter(settings.documents_dir))
@@ -76,12 +78,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # itself and then refused would be the same failure as a system prompt
     # promising a tool the request never declares: the model spends the turn
     # reaching for something that was never there.
-    # Registered whether or not there is a key. Without one it is listed as
-    # needing configuration and never offered to the model -- `Registry.enabled`
-    # checks `available` as well as `enabled`. Hiding it entirely was worse:
-    # the capability existed and nothing on screen said so.
     web_search = WebSearch(settings.search_api_key, endpoint=settings.search_endpoint)
     registry.register(web_search)
+
+    # Database-backed MCP manager: dynamically loads tools from mcp_servers table
+    mcp_manager = MCPManager(store, registry)
     orchestrator = Orchestrator(settings, store, providers, registry)
 
     @asynccontextmanager
@@ -92,7 +93,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # It is a task rather than an await because the port should open now,
         # not after several thousand chunks have been embedded.
         indexing = asyncio.create_task(_index_quietly())
+        mcp_sync = asyncio.create_task(_sync_mcp_quietly())
         yield
+        mcp_sync.cancel()
+        await mcp_manager.aclose()
         indexing.cancel()
         await providers.aclose()
         db.close()
@@ -108,6 +112,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:  # never keep the server from starting
             print(f"[memory] startup indexing: {exc}")
 
+    async def _sync_mcp_quietly() -> None:
+        try:
+            res = await mcp_manager.sync_all()
+            if res["synced"]:
+                print(f"[mcp] connected to {res['synced']} MCP server(s)")
+            if res["failed"]:
+                print(f"[mcp] failed to connect to {res['failed']} MCP server(s): {res['errors']}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(f"[mcp] startup sync: {exc}")
+
     app = FastAPI(title="unified-llm", lifespan=lifespan)
     app.state.settings = settings
     app.state.db = db
@@ -116,12 +132,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.store = store
     app.state.orchestrator = orchestrator
     app.state.indexer = indexer
+    app.state.mcp_manager = mcp_manager
 
     auth = make_auth_dependency(settings)
     app.include_router(
         build_router(
             store, orchestrator, providers, auth, registry,
-            settings, indexer, curator,
+            settings, indexer, curator, mcp_manager,
         ),
         prefix="/api",
     )
