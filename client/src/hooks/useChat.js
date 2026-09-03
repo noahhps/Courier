@@ -42,6 +42,8 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
   const frame = useRef(0);
   const timer = useRef(0);
   const pending = useRef({ key: null, text: "", reasoning: "" });
+  // The turn in flight, so it can be called off from outside `send`.
+  const inFlight = useRef(null);
 
   const flush = useCallback(() => {
     const { key, text, reasoning } = pending.current;
@@ -130,6 +132,9 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
       if (streaming || (!text.trim() && !files.length)) return;
       setStreaming(true);
 
+      const controller = new AbortController();
+      inFlight.current = controller;
+
       const answer = message("assistant", "", { streaming: true });
       const asked = message("user", text);
       setMessages((prev) => [...prev, asked, answer]);
@@ -170,6 +175,7 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
           attachments,
           thinkingLevel,
           provider,
+          controller.signal,
         );
 
         for await (const { event, data } of readEvents(response)) {
@@ -228,15 +234,22 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
         settle();
       } catch (error) {
         settle();
+        // Stopping is not failing. The reader asked for the turn to end, the
+        // server has already kept whatever was written, and what is on screen
+        // is what will be there on reload -- so the bubble simply stops
+        // growing. An error under it would be describing an outcome the reader
+        // chose, which is how a deliberate act gets reported as a fault.
+        const stopped = error.name === "AbortError";
         // A rejected token has already dropped the app back to the gate;
         // stacking "lost the connection" on top of that says nothing.
-        if (!(error instanceof UnauthorizedError)) {
+        if (!stopped && !(error instanceof UnauthorizedError)) {
           // A refusal from the server already says what went wrong and why.
           // Only a genuinely dropped connection needs to be described as one.
           const explained = error instanceof ApiError || error.name === "FileReadError";
           fail(explained ? error.message : "Lost the connection: " + error.message);
         }
       } finally {
+        inFlight.current = null;
         setMessages((prev) =>
           prev.map((m) => (m.key === answer.key ? { ...m, streaming: false } : m)),
         );
@@ -273,6 +286,27 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
     ],
   );
 
+  /**
+   * End the turn in flight, keeping what has arrived.
+   *
+   * Aborting the fetch is the whole mechanism -- there is no "stop" message to
+   * send. The server notices the disconnect between frames and its `finally`
+   * writes the partial answer, so what is on screen at the moment you press it
+   * is what the conversation keeps. Reopening the session shows the same
+   * half-finished reply rather than an empty bubble.
+   *
+   * Safe to call when nothing is running: the ref is cleared in `send`'s
+   * `finally`, so this is a no-op rather than an error.
+   */
+  const stop = useCallback(() => {
+    inFlight.current?.abort();
+  }, []);
+
+  // A turn outliving the component that started it has nobody to render it and
+  // no way to be stopped, so unmounting ends it. Without this, navigating away
+  // mid-answer leaves the model generating into a closed page.
+  useEffect(() => () => inFlight.current?.abort(), []);
+
   return {
     messages,
     sessionId,
@@ -284,5 +318,6 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
     openSession,
     startNew,
     send,
+    stop,
   };
 }

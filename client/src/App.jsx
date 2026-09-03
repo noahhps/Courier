@@ -288,6 +288,7 @@ export default function App() {
 
               <Composer
                 disabled={chat.streaming}
+                onStop={chat.stop}
                 focusToken={focusToken}
                 draft={draft}
                 sessionLabel={chat.sessionId ? chat.title : null}

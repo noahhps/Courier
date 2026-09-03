@@ -196,9 +196,22 @@ export function createApi(token, onUnauthorized = () => {}) {
     // `provider` is "local", "cloud", or null for whatever the router picks.
     // Never switch silently -- the server records which one answered and the
     // reply's meta frame says so.
-    chat: (message, sessionId, attachments = [], thinkingLevel = null, provider = null) =>
+    // `signal` is what makes a turn abortable. Aborting it drops the
+    // connection, which the server already treats as a finished turn: /chat
+    // checks `request.is_disconnected()` between frames, and the orchestrator
+    // persists whatever arrived in its `finally`. So stopping keeps the half
+    // of the answer that was written rather than discarding it.
+    chat: (
+      message,
+      sessionId,
+      attachments = [],
+      thinkingLevel = null,
+      provider = null,
+      signal = undefined,
+    ) =>
       request("/chat", {
         method: "POST",
+        signal,
         body: JSON.stringify({
           message,
           session_id: sessionId,

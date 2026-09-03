@@ -96,6 +96,7 @@ export function Composer({
   sessionLabel,
   thinking,
   onSend,
+  onStop,
 }) {
   const [value, setValue] = useState("");
   // Whatever the current control's value is. Reset when the control changes
@@ -450,9 +451,25 @@ export function Composer({
             disabled={disabled}
           />
 
-          <button type="submit" className="send" aria-label="Send" disabled={disabled}>
-            <Icon name="send" />
-          </button>
+          {/* While a turn is streaming this is the way out of it, not a
+              greyed-out arrow. A disabled control says "not now"; the thing
+              the reader actually wants at that moment is to call the answer
+              off, and on local hardware a wrong one can run for a while.
+              `type="button"` so it cannot submit the form it lives in. */}
+          {disabled ? (
+            <button
+              type="button"
+              className="send"
+              aria-label="Stop generating"
+              onClick={onStop}
+            >
+              <Icon name="stop" />
+            </button>
+          ) : (
+            <button type="submit" className="send" aria-label="Send">
+              <Icon name="send" />
+            </button>
+          )}
         </div>
       </div>
     </form>

@@ -67,9 +67,22 @@ function SideChat({ api, onSessionsChanged, onAnswered }) {
           disabled={chat.streaming}
           onChange={(e) => setValue(e.target.value)}
         />
-        <button type="submit" className="send" aria-label="Send" disabled={chat.streaming}>
-          <Icon name="send" />
-        </button>
+        {/* Same swap as the main composer: while a turn runs, the control is
+            the way out of it rather than a greyed-out arrow. */}
+        {chat.streaming ? (
+          <button
+            type="button"
+            className="send"
+            aria-label="Stop generating"
+            onClick={chat.stop}
+          >
+            <Icon name="stop" />
+          </button>
+        ) : (
+          <button type="submit" className="send" aria-label="Send">
+            <Icon name="send" />
+          </button>
+        )}
       </form>
     </div>
   );

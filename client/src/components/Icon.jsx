@@ -14,6 +14,10 @@ const PATHS = {
   plus: "M12 5v14M5 12h14",
   close: "M6 6l12 12M18 6L6 18",
   send: "M5 12h14M13 6l6 6-6 6",
+  // The square everything uses for stop. Stroked like its neighbours rather
+  // than filled, so it sits at the same visual weight as the arrow it
+  // replaces -- a solid block in the same circle reads as much heavier.
+  stop: "M8 8h8v8H8z",
   check: "M5 12.5l5 5 9-11",
   // A drawing pin, seen side on: head, shaft, point. `pinned` is the same
   // object driven home -- shorter shaft, so the state reads at 15px.
