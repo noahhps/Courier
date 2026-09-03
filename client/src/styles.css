@@ -2829,3 +2829,292 @@ svg {
   background: #8c2f22;
 }
 .dlg-actions .btnp[data-destructive]:hover { background: #74271c; }
+
+/* -- accents ----------------------------------------------------------------
+ *
+ * Everything above this line reads tokens; nothing above it knows an accent
+ * exists. That is the whole design of the feature: `lib/theme.js` recomputes
+ * the same sixteen custom properties `:root` declares at the top of this file
+ * and writes them onto <html>, so a themed app is the same stylesheet with a
+ * different ladder underneath it.
+ *
+ * What is new here is the part tokens cannot express: the ambient field, the
+ * swatch row that sets it, and the beads that say which colour a thing wears.
+ */
+
+/* The aura colours are registered so they can be animated. An unregistered
+ * custom property is a string as far as the cascade is concerned, and a string
+ * does not interpolate -- the wash would jump from ochre to teal in one frame
+ * when a conversation turns a corner. Registering them as <color> makes the
+ * transition below a real crossfade.
+ *
+ * A browser without @property ignores this block and gets the jump, which is
+ * a lesser version of the effect rather than a broken one. */
+@property --aura-1 {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+@property --aura-2 {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+@property --aura-3 {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+
+:root {
+  /* Off by default, so an app that has never been given an accent looks
+     exactly as it did before this feature existed. `lib/theme.js` raises it. */
+  --aura-opacity: 0;
+  --aura-1: transparent;
+  --aura-2: transparent;
+  --aura-3: transparent;
+  --accent-pure: var(--accent);
+  /* One duration for every surface that recolours, so the app changes accent
+     as one movement rather than as a dozen. Long enough to read as a light
+     changing rather than as a repaint. */
+  --accent-motion: 900ms cubic-bezier(0.32, 0.72, 0.3, 1);
+}
+
+/* The ambient field: three soft discs of colour low and wide behind the sheet,
+ * which is the whole of the reference's look. Bigger than the sheet and
+ * pushed past its edges on purpose -- what is wanted is the middle of a very
+ * large gradient, not three visible circles.
+ *
+ * `z-index: -1` inside an isolated `.screen` puts it above the sheet's own
+ * background and below everything in the flow, so it tints the paper without
+ * ever coming between the reader and a word. */
+/* `position: relative` is what the field is measured against, and `isolation`
+   is what keeps its negative z-index inside the sheet rather than letting it
+   slide behind the shell. */
+.screen {
+  position: relative;
+  isolation: isolate;
+  transition: background-color var(--accent-motion);
+}
+
+.screen::before,
+.navrail-inner::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--aura-opacity);
+  transition:
+    opacity var(--accent-motion),
+    --aura-1 var(--accent-motion),
+    --aura-2 var(--accent-motion),
+    --aura-3 var(--accent-motion);
+}
+
+.screen::before {
+  /* Overhanging every edge, so the falloff happens off-screen. */
+  inset: -30% -20% -35%;
+  background:
+    radial-gradient(72% 58% at 18% 104%, var(--aura-2), transparent 78%),
+    radial-gradient(66% 52% at 92% 82%, var(--aura-1), transparent 76%),
+    radial-gradient(88% 62% at 46% -12%, var(--aura-3), transparent 80%);
+}
+
+/* The rail gets the same field, turned down and turned around: it is a
+   62px-to-252px strip, so a gradient drawn for the sheet's proportions would
+   show as a single flat colour in it. */
+.navrail-inner { isolation: isolate; }
+.navrail-inner::before {
+  inset: -10% -40%;
+  opacity: calc(var(--aura-opacity) * 0.7);
+  background:
+    radial-gradient(60% 30% at 50% 108%, var(--aura-2), transparent 74%),
+    radial-gradient(70% 26% at 50% -6%, var(--aura-3), transparent 76%);
+}
+
+/* Motion is what makes a recolour readable rather than startling, so it is
+   also the first thing to go when motion is not wanted. The colours still
+   change -- they just arrive. */
+@media (prefers-reduced-motion: reduce) {
+  .screen,
+  .screen::before,
+  .navrail-inner::before {
+    transition: none;
+  }
+}
+
+/* -- the swatch row --------------------------------------------------------- */
+
+.accents { display: flex; flex-direction: column; gap: 12px; }
+.accents[data-disabled] { opacity: 0.5; pointer-events: none; }
+
+.accent-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+/* A swatch is the colour it sets, and its name is the tooltip and the screen
+   reader's label rather than type under it -- twelve labels in a row is a
+   paragraph, and the colour is the label. */
+.accent {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  /* The ring that says "chosen", drawn at rest as the same size in the
+     background colour so selecting one changes a colour rather than a size. */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent);
+  transition: box-shadow 140ms ease, transform 140ms ease;
+}
+.accent:hover { transform: scale(1.12); }
+.accent:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.accent[data-on] {
+  box-shadow:
+    0 0 0 2px var(--ground),
+    0 0 0 4px var(--accent);
+}
+
+.accent > i {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--a, var(--line-strong));
+}
+/* The swatch names are for the accessibility tree, not the page. */
+.accent > .mi {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Auto is two colours, because it is not one: it is whatever the conversation
+   turns out to be about, and a single flat disc would claim more certainty
+   than the thing has. */
+.accent[data-kind="auto"] > i {
+  background: conic-gradient(from 210deg, var(--a), var(--b), var(--a));
+}
+/* Inherit and off are both absences, drawn as absences: an open ring for "not
+   decided here", a struck-through blank for "no colour at all". */
+.accent[data-kind="inherit"] > i {
+  background: none;
+  box-shadow: inset 0 0 0 2px var(--line-strong);
+}
+.accent[data-kind="off"] > i {
+  background:
+    linear-gradient(
+      to bottom right,
+      transparent calc(50% - 1px),
+      var(--line-strong) calc(50% - 1px),
+      var(--line-strong) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ),
+    var(--rail);
+  box-shadow: inset 0 0 0 1px var(--line-firm);
+}
+
+.accent-dials {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.accent-dial { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 150px; }
+.accent-dial input[type="range"] {
+  flex: 1;
+  min-width: 90px;
+  accent-color: var(--accent);
+}
+/* The hue slider is the hue circle, so the track says what the handle picks.
+   Drawn in OKLCH so the sweep is even -- an sRGB rainbow spends a third of
+   its width in the greens. */
+.accent-hue {
+  appearance: none;
+  height: 10px;
+  border-radius: 5px;
+  /* The sRGB sweep first, for anything that cannot parse the OKLCH one below
+     -- without it an unsupported interpolation leaves an invisible track. */
+  background: linear-gradient(
+    to right,
+    #b5494e,
+    #ac5700,
+    #8b6e00,
+    #1c8742,
+    #008282,
+    #476dc3,
+    #7f5bb6,
+    #ab4a7d,
+    #b5494e
+  );
+  background: linear-gradient(
+    to right in oklch longer hue,
+    oklch(0.62 0.14 0),
+    oklch(0.62 0.14 360)
+  );
+}
+.accent-hue::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 0 0 2px var(--ink);
+}
+.accent-hue::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 0 0 2px var(--ink);
+}
+
+/* The bead: one small disc saying what colour a thing is wearing. Beside a
+   project's name, and inside the top bar's button. */
+.accent-bead {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+  vertical-align: baseline;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.prj-head .accent-bead { margin-right: 8px; }
+/* In the rail the bead sits in the row's flex line, so it needs its own gap
+   rather than a margin that a truncating title could eat. */
+.navrail-session .accent-bead { width: 7px; height: 7px; margin-right: 7px; }
+
+.topbar-accent { position: relative; flex: none; }
+.accent-trigger { display: grid; place-items: center; }
+.accent-trigger .accent-bead { width: 15px; height: 15px; }
+
+/* Wider than the provider menu and hung from the right, because it is anchored
+   to a button at the right end of the bar rather than to the rail. */
+.popover-accents {
+  width: 296px;
+  right: 0;
+  top: 46px;
+  padding: 12px;
+}
+.popover-accents .accents { padding: 4px 2px 2px; }
+.popover-accents .popover-head { padding: 2px 2px 10px; }
+.popover-accents .popover-foot { margin-top: 10px; }
+
+.prj-accents {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0 2px;
+  border-top: 1px solid var(--line-soft);
+}

@@ -180,6 +180,43 @@ one place this schema deliberately does not cascade.
 `docs/memory.md` has the details, including the one setting worth checking
 against your own encoder.
 
+## Accents
+
+The whole client can be dressed in one colour, and so can a single project or
+a single conversation. Ten named accents, a hue slider, and an intensity — or
+**From the chat**, which works the colour out from what is being talked about.
+
+Three scopes, nearest wins: a conversation's accent beats its project's, which
+beats the app-wide one. A scope that has not chosen is not a scope that chose
+nothing — the decision falls through to the next one up. That is why the
+picker distinguishes *inherit* (an open ring) from *none* (a struck-through
+blank): the first declines to decide, the second decides to wear no colour.
+Set it from the bead in the top bar for a chat, from a folder's **accent** row
+on Projects, and from **Settings → Accent** for everything else.
+
+**From the chat** is arithmetic, not a model call: a keyword pass over the
+title and the recent turns, already in memory on the device, against a dozen
+subject fields — engineering is cobalt, cooking is a bread-crust ochre, travel
+is a sea blue. Nothing is sent anywhere and no model has to be running for the
+UI to render. A conversation that matches two fields lands between them, and a
+new subject has to clearly beat the standing one before the app is
+redecorated, so the colour drifts rather than flickers.
+
+Only the *intent* is stored — a mode, and a preset name or a hue. The palette
+itself is derived in the client, in OKLCH: sixteen custom properties on one
+lightness ladder read back off the hand-picked hexes in `styles.css`, so
+`cobalt` at low intensity reproduces the palette this app shipped with, and
+**none** restores it exactly. Every colour that carries text is contrast-checked
+on the ground it will sit on as it is generated — 4.5:1 for the small greys,
+5.5:1 for the accent — because the hue is now the reader's to choose and there
+is no hand left to darken it afterwards. Green and ochre are deliberately left
+alone: they mean pass and warning, and a warning that turns blue because
+somebody likes blue is a bug.
+
+The colour arrives as tints on the surfaces, lines and accents; the large soft
+field behind the sheet — the part that looks like the reference — is a separate
+layer, `--aura-*`, painted behind the thread and never between it and a word.
+
 ## Configuration
 
 All environment variables, all optional.
@@ -255,9 +292,13 @@ server/app/
 client/            React, built by Vite; no CDN, no runtime dependencies
   src/
     App.jsx        auth phases, drawer, wiring
-    hooks/         useChat (the turn), useSessions (the list)
+    hooks/         useChat (the turn), useSessions (the list),
+                   useTheme (the accent, resolved across three scopes)
     lib/api.js     bearer token, SSE-over-fetch
     lib/markdown.js  the renderer -- escapes before it emits a single tag
+    lib/color.js     OKLCH <-> sRGB, WCAG contrast, gamut mapping
+    lib/theme.js     one hue -> the whole palette; the ten named accents
+    lib/autotheme.js what a conversation is about, as a hue
     components/    gate, top bar, drawer, message list, composer
   public/          copied verbatim: service worker, manifest, icons
   dist/            the build output; this is what the server serves

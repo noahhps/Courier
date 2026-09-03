@@ -185,6 +185,24 @@ export function createApi(token, onUnauthorized = () => {}) {
         method: "PUT",
         body: JSON.stringify({ project_id: projectId }),
       }),
+
+    // -- accents ---------------------------------------------------------
+    // Three scopes, one body. `theme: null` clears a scope rather than
+    // turning colour off -- a cleared chat takes its project's accent, where
+    // an accent of `{mode: "off"}` is a decision to wear none.
+    getAppTheme: () => json("/theme"),
+    setAppTheme: (theme) =>
+      json("/theme", { method: "PUT", body: JSON.stringify({ theme }) }),
+    setSessionTheme: (sessionId, theme) =>
+      json("/sessions/" + encodeURIComponent(sessionId) + "/theme", {
+        method: "PUT",
+        body: JSON.stringify({ theme }),
+      }),
+    setProjectTheme: (projectId, theme) =>
+      json("/projects/" + encodeURIComponent(projectId) + "/theme", {
+        method: "PUT",
+        body: JSON.stringify({ theme }),
+      }),
     getSession: (id) => json("/sessions/" + id),
     deleteSession: (id) => request("/sessions/" + id, { method: "DELETE" }),
     deleteSessions: (ids) =>

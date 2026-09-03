@@ -3,6 +3,8 @@ import { useCallback, useRef, useState } from "react";
 import { useDialog } from "./Dialog";
 import { Icon } from "./Icon";
 import { ModelMenu } from "./ModelMenu";
+import { seedFromContext } from "../lib/autotheme";
+import { swatchOf } from "../lib/theme";
 
 /* The rail from artboard 1a, which opens out under the pointer.
  *
@@ -78,6 +80,17 @@ function SessionRows({ sessions, activeId, onOpenSession, onDelete, empty }) {
       }}
     >
       <button className="navrail-session" onClick={() => onOpenSession(session.id)}>
+        {/* Only when the conversation has an accent of its own. A bead under
+            every row would be showing the app's colour twelve times over,
+            and one that appeared on a chat merely because its project is
+            green would be claiming a decision nobody made. */}
+        {session.theme ? (
+          <span
+            className="accent-bead"
+            aria-hidden="true"
+            style={{ background: swatchOf(session.theme, seedFromContext(session)) }}
+          />
+        ) : null}
         {session.title || "Untitled"}
       </button>
       <button

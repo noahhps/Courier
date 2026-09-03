@@ -360,6 +360,22 @@ MIGRATIONS: list[str] = [
       fetched_at INTEGER NOT NULL
     );
     """,
+    # 12 -- accents: the colour a conversation or a folder is dressed in.
+    #
+    # One nullable TEXT column on each, holding the JSON the client sends --
+    # a mode and, depending on it, a preset name or a hue. NULL means "not
+    # decided here", which is what makes the three scopes stack: a chat falls
+    # through to its project, and a project falls through to the app-wide
+    # accent in `app_settings`.
+    #
+    # The colour itself is not stored, only the intent behind it. A hue and a
+    # mode survive a change to how the palette is derived; forty resolved hex
+    # values would freeze today's arithmetic into every row and have to be
+    # migrated the first time a tint is adjusted.
+    """
+    ALTER TABLE sessions ADD COLUMN theme TEXT;
+    ALTER TABLE projects ADD COLUMN theme TEXT;
+    """,
 ]
 
 

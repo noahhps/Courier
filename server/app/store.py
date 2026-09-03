@@ -292,6 +292,7 @@ class Store:
             "title": title,
             "created_at": now,
             "updated_at": now,
+            "theme": None,
             **where,
         }
 
@@ -334,7 +335,7 @@ class Store:
     def list_sessions(self, limit: int = 200) -> list[dict]:
         rows = self.db.query(
             """
-            SELECT s.id, s.title, s.created_at, s.updated_at, s.project_id,
+            SELECT s.id, s.title, s.created_at, s.updated_at, s.project_id, s.theme,
                    (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count
             FROM sessions s
             ORDER BY s.updated_at DESC
@@ -944,6 +945,31 @@ class Store:
                 [(key, "1" if on else "0") for key, on in values.items()],
             )
 
+    # The same table read as text rather than as a switch. `app_settings` was
+    # built for the three booleans on the Memory page, and every one of those
+    # still round-trips through "1"/"0" -- but a stored accent is a small JSON
+    # object, and coercing that to a bool on the way out would lose it.
+    #
+    # Two accessors rather than a `kind` argument on the existing pair: a
+    # caller always knows which of the two it wants, and a mistaken read is
+    # then a missing method rather than a value that quietly comes back False.
+
+    def get_text_setting(self, key: str) -> str | None:
+        row = self.db.query_one("SELECT value FROM app_settings WHERE key = ?", (key,))
+        return row["value"] if row else None
+
+    def set_text_setting(self, key: str, value: str | None) -> None:
+        """Store a string; None deletes the row, which restores the default."""
+        if value is None:
+            self.db.execute("DELETE FROM app_settings WHERE key = ?", (key,))
+            return
+        self.db.execute(
+            """
+            INSERT INTO app_settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, value),
+        )
 
     # -- documents summary ------------------------------------------------
 
@@ -1115,12 +1141,18 @@ class Store:
             "INSERT INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
             (project_id, name, now, now),
         )
-        return {"id": project_id, "name": name, "created_at": now, "updated_at": now}
+        return {
+            "id": project_id,
+            "name": name,
+            "created_at": now,
+            "updated_at": now,
+            "theme": None,
+        }
 
     def list_projects(self) -> list[dict]:
         rows = self.db.query(
             """
-            SELECT p.id, p.name, p.created_at, p.updated_at,
+            SELECT p.id, p.name, p.created_at, p.updated_at, p.theme,
                    (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id)
                        AS session_count
             FROM projects p
@@ -1148,6 +1180,27 @@ class Store:
         """File a conversation, or unfile it with None."""
         self.db.execute(
             "UPDATE sessions SET project_id = ? WHERE id = ?", (project_id, session_id)
+        )
+
+    # -- accents ----------------------------------------------------------
+    #
+    # `theme` is the JSON the client sent, stored verbatim. None clears it,
+    # which is not the same as an accent that says "off": cleared means this
+    # scope has no opinion and the one above it decides, while off is a
+    # decision to wear no colour at all.
+    #
+    # Neither writer touches `updated_at`. Recolouring a conversation is not a
+    # change to the conversation, and bumping the timestamp would jump it to
+    # the top of a list ordered by when it was last actually said something.
+
+    def set_session_theme(self, session_id: str, theme: str | None) -> None:
+        self.db.execute(
+            "UPDATE sessions SET theme = ? WHERE id = ?", (theme, session_id)
+        )
+
+    def set_project_theme(self, project_id: str, theme: str | None) -> None:
+        self.db.execute(
+            "UPDATE projects SET theme = ? WHERE id = ?", (theme, project_id)
         )
 
     # -- MCP servers ------------------------------------------------------

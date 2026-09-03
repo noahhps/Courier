@@ -153,8 +153,8 @@ export function Memory({ api }) {
   return (
     <div className="page">
       <div className="page-head" data-tint="violet">
-        <div className="sw" style={{ right: "-70px", top: "-120px", width: "300px", height: "300px", background: "#d8d6f2" }} />
-        <div className="sw" style={{ right: "110px", top: "-60px", width: "150px", height: "150px", background: "#dce9e2" }} />
+        <div className="sw" style={{ right: "-70px", top: "-120px", width: "300px", height: "300px", background: "var(--violet-field)" }} />
+        <div className="sw" style={{ right: "110px", top: "-60px", width: "150px", height: "150px", background: "var(--blue-wash)" }} />
         <div className="inner">
           <div>
             <h1 className="h">What I remember</h1>
