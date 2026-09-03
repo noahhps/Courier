@@ -106,7 +106,12 @@
      everything you read lines up. */
   --read-w: 780px;
 
-  --composer-h: 0px;
+  /* How much of the composer is on screen once it has withdrawn, published by
+     Composer.jsx. The thread keeps clear of this rather than of the whole box,
+     so a tucked composer gives its space back to the conversation. The default
+     is a plausible strip for the frames before the first measurement, not a
+     value anything relies on. */
+  --composer-peek: 48px;
   --rail-w: 76px;
   /* Wide enough for a conversation title to be recognisable before it
      ellipsises, which is the width the session list needs rather than the
@@ -1132,7 +1137,18 @@ svg {
   flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 28px 34px calc(var(--composer-h) + 28px);
+  /* The bottom reserve is the *withdrawn* composer, not the whole one.
+   *
+   * On a thread the composer floats over the sheet (see the rule below), so
+   * the thread runs the full height and only has to keep clear of what is
+   * actually on screen. Reserving the whole box instead left a band of nothing
+   * between the last turn and a composer that had slid most of the way off the
+   * bottom edge -- which is the space this gives back.
+   *
+   * Raised, the composer covers the last few lines. That is the trade a
+   * floating composer makes everywhere: the thread scrolls under it while you
+   * are typing, and gets the room back the moment you stop. */
+  padding: 28px 34px calc(var(--composer-peek) + 12px);
   display: flex;
   flex-direction: column;
   gap: 26px;
@@ -1177,6 +1193,29 @@ svg {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+}
+
+/* An empty conversation holds the composer still.
+ *
+ * Withdrawing only makes sense when the composer is in front of something --
+ * on a thread it sits at the foot of the sheet and tucks toward the edge of
+ * the window. Here it is centred with the openers *below* it, so the same
+ * downward tuck slides the box straight over the first row of them and hides
+ * the very prompts it is asking you to pick from.
+ *
+ * It is also the wrong gesture. On this screen the composer is the subject
+ * rather than an interruption -- there is no conversation for it to get out of
+ * the way of -- so it should simply be present, and a springy arrival every
+ * time a new conversation opens is motion with nothing to say.
+ *
+ * Wins over the proximity transform by specificity, so it holds regardless of
+ * what `--near` is doing; the effect keeps tracking harmlessly and the glow
+ * still answers the cursor. `transform` is dropped from the transition list as
+ * well, so entering this state settles instantly instead of springing into it. */
+.screen[data-empty] .composer-box {
+  transform: none;
+  animation: none;
+  transition: border-color var(--composer-motion);
 }
 
 .starters {
@@ -1580,6 +1619,30 @@ svg {
  * from `.composer`, and a transform does not affect offsetHeight, so the
  * thread keeps padding for the full height and the last turn never shifts as
  * the box slides. The space under it stays reserved and stays empty. */
+/* On a thread the composer floats over the foot of the sheet rather than
+ * standing in the column.
+ *
+ * In flow it reserved its full height whether or not it was using it, so a
+ * withdrawn composer left an empty band above itself and the conversation
+ * stopped well short of the edge. Floating hands that height back to the
+ * thread, which then keeps clear only of `--composer-peek` -- the part still
+ * on screen once it has tucked away.
+ *
+ * Not in the empty state, which is why this is scoped. There the composer is
+ * centred between the greeting and the openers by the flex rules above, and
+ * taking it out of the column would drop it out of that arrangement entirely.
+ *
+ * `.screen` is already `position: relative` (it carries the accent wash), so
+ * there is nothing to add for this to anchor against. */
+.screen:not([data-empty]) .composer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* Above the thread it now overlaps, below the rail's opened panel. */
+  z-index: 5;
+}
+
 .composer {
   flex: none;
   padding: 16px 34px 26px;
@@ -2426,7 +2489,9 @@ svg {
   .navrail-dest > button,
   .navrail-group > button { width: 28px; border-radius: 14px; }
 
-  .messages { padding: 20px 18px calc(var(--composer-h) + 20px); }
+  /* Same correction as the wide layout: the composer is a sibling below the
+     thread, not a panel over it, so its height is not clearance to reserve. */
+  .messages { padding: 20px 18px 20px; }
   .composer { padding: 12px 18px 18px; }
   .topbar { padding: 0 16px 0 18px; }
 

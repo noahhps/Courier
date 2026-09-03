@@ -26,9 +26,6 @@ import { swatchOf } from "../lib/theme";
  * rules is how one of them ends up forgotten.
  */
 
-const DELETE_WARNING = (name) =>
-  `Delete the project "${name}"? Its conversations are kept and become unfiled.`;
-
 const LIST_KEY = "unified-llm-rail-list-open";
 
 const DESTINATIONS = [
@@ -40,25 +37,44 @@ const DESTINATIONS = [
   { id: "tools", label: "Tools", icon: "tools" },
 ];
 
+/* The destination's name.
+ *
+ * One copy now. There used to be a second, set vertically, which was what the
+ * rail showed while shut -- the glyphs were held at zero width and the labels
+ * were the whole of the closed state. Shut, it is a column of icons instead,
+ * so the sideways copy has nothing left to do.
+ *
+ * This one stays in the DOM at every width, hidden with opacity rather than
+ * `display: none`, which is what keeps the button's accessible name the same
+ * whether the rail is open or shut. A screen reader reads "Calendar" either
+ * way; only the eye sees the difference. */
 function Label({ label }) {
-  return (
-    <>
-      {/* The vertical copy is decorative duplication: it is taken out of the
-          accessibility tree so the button keeps one name in both states,
-          whichever copy happens to be visible. */}
-      <span className="lbl-v" aria-hidden="true">
-        {label}
-      </span>
-      <span className="lbl-h">{label}</span>
-    </>
+  return <span className="lbl-h">{label}</span>;
+}
+
+/* The colour a conversation wears in the list.
+ *
+ * Its own accent if it has one, otherwise its project's -- the same order
+ * `useTheme` resolves in when it dresses the conversation itself, so a chat
+ * shows the same colour in the rail as it does once opened.
+ *
+ * Null when neither has an accent, and the row draws no bead at all. A bead on
+ * every conversation would be the app's own colour repeated down the whole
+ * list, which says nothing about any of them. */
+function accentOf(session, projects) {
+  if (session.theme) return swatchOf(session.theme, seedFromContext(session));
+  const project = projects?.find((p) => p.id === session.project_id);
+  if (!project?.theme) return null;
+  // A project has a name rather than a title and no messages, so an auto
+  // accent seeds from what little it has.
+  return swatchOf(
+    project.theme,
+    seedFromContext({ title: project.name, id: project.id }),
   );
 }
 
-/* One conversation, wherever it is filed. Pulled out because it is now
-   rendered twice -- inside a project, and under Conversations for the ones
-   that are not in any -- and two copies of a delete confirmation is exactly
-   how the two drift apart. */
-function SessionRows({ sessions, activeId, onOpenSession, onDelete, empty }) {
+/* One conversation, wherever it is filed. */
+function SessionRows({ sessions, projects, activeId, onOpenSession, onDelete, empty }) {
   const { confirm } = useDialog();
   if (sessions.length === 0) {
     return (
@@ -67,7 +83,9 @@ function SessionRows({ sessions, activeId, onOpenSession, onDelete, empty }) {
       </li>
     );
   }
-  return sessions.map((session) => (
+  return sessions.map((session) => {
+    const accent = accentOf(session, projects);
+    return (
     <li
       key={session.id}
       data-active={String(session.id === activeId)}
@@ -80,16 +98,11 @@ function SessionRows({ sessions, activeId, onOpenSession, onDelete, empty }) {
       }}
     >
       <button className="navrail-session" onClick={() => onOpenSession(session.id)}>
-        {/* Only when the conversation has an accent of its own. A bead under
-            every row would be showing the app's colour twelve times over,
-            and one that appeared on a chat merely because its project is
-            green would be claiming a decision nobody made. */}
-        {session.theme ? (
-          <span
-            className="accent-bead"
-            aria-hidden="true"
-            style={{ background: swatchOf(session.theme, seedFromContext(session)) }}
-          />
+        {/* The bead is how a conversation shows which project it belongs to,
+            now that the folders it used to sit inside are gone from here.
+            It reads its project's colour unless it has one of its own. */}
+        {accent ? (
+          <span className="accent-bead" aria-hidden="true" style={{ background: accent }} />
         ) : null}
         {session.title || "Untitled"}
       </button>
@@ -112,7 +125,8 @@ function SessionRows({ sessions, activeId, onOpenSession, onDelete, empty }) {
         ×
       </button>
     </li>
-  ));
+    );
+  });
 }
 
 export function NavRail({
@@ -130,30 +144,21 @@ export function NavRail({
   railWidth,
   sessions,
   projects,
-  onNewProject,
-  onRenameProject,
-  onDeleteProject,
-  onNewSessionIn,
   onFileSession,
   activeId,
   onOpenSession,
   onNewSession,
   onDelete,
 }) {
-  const { ask, confirm } = useDialog();
   // Whether the conversation list is unfolded under Chat. A layout preference,
   // so it persists like the pin does -- someone who keeps it shut wants it shut
   // tomorrow as well.
   const [listOpen, setListOpen] = useState(
     () => localStorage.getItem(LIST_KEY) !== "0",
   );
-  // Which projects are unfolded. A Set in state rather than a flag per
-  // project, so adding a project needs no new state.
-  const [openProjects, setOpenProjects] = useState(() => new Set());
-  // The folder a dragged conversation is currently over, and the folder whose
-  // right-click menu is open. Both are one-at-a-time, so both are a single id.
+  // Whether a dragged conversation is currently over the list. One at a time,
+  // so one id rather than a set.
   const [dropOver, setDropOver] = useState(null);
-  const [menu, setMenu] = useState(null);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -202,6 +207,20 @@ export function NavRail({
       onFocus={() => setFocused(true)}
       onBlur={handleBlur}
     >
+      {/* The reveal. Unpinned, the rail takes no width at all, so there is
+          nothing left to hover -- this strip along the very edge of the window
+          is what the pointer arrives at instead.
+
+          It sits inside `.navrail` rather than beside it so the existing
+          enter/leave handlers do the work: entering any descendant enters the
+          rail, which is the same route the opened panel already takes when the
+          pointer moves onto it from the sheet.
+
+          Hidden when pinned (there is nothing to reveal) and on narrow screens,
+          where the rail keeps a visible strip and opens on tap -- a hover
+          target is no use to a finger. */}
+      <div className="navrail-edge" aria-hidden="true" />
+
       <div className="navrail-inner">
         <div className="navrail-top">
           <button
@@ -236,10 +255,24 @@ export function NavRail({
             <button
               type="button"
               aria-current={view === "chat" ? "page" : undefined}
-              onClick={() => onView("chat")}
+                                
+                  
+                  className="navrail-section"
+                  aria-expanded={listOpen}
+                  aria-controls="navrail-session-list"
+                  onClick={() => {
+                    const next = !listOpen;
+                    setListOpen(next);
+                    localStorage.setItem(LIST_KEY, next ? "1" : "0");
+                    () => onView("chat");
+                  }}
+                
+
+              
             >
               <Icon name={DESTINATIONS[0].icon} />
               <Label label={DESTINATIONS[0].label} />
+        
             </button>
 
             {/* Collapsed to nothing until the rail opens. Deliberately not
@@ -252,23 +285,6 @@ export function NavRail({
                     rather than nesting the list inside the button: a button
                     wrapping a list of buttons is not a thing a screen reader
                     can describe. */}
-                <button
-                  type="button"
-                  className="navrail-section"
-                  aria-expanded={listOpen}
-                  aria-controls="navrail-session-list"
-                  onClick={() => {
-                    const next = !listOpen;
-                    setListOpen(next);
-                    localStorage.setItem(LIST_KEY, next ? "1" : "0");
-                  }}
-                >
-                  <Icon name={listOpen ? "chat_bubble" : "chat_bubble_outline"} />
-                  <span>Conversations</span>
-                  <span className="navrail-chevron" aria-hidden="true">
-                    {listOpen ? "⌄" : "›"}
-                  </span>
-                </button>
 
                 <button type="button" className="navrail-new" onClick={onNewSession}>
                   + New conversation
@@ -279,134 +295,19 @@ export function NavRail({
                     project appears only there -- listing it twice would make
                     the counts lie. */}
                 <div hidden={!listOpen}>
-                  {projects.map((project) => {
-                    const mine = sessions.filter((s) => s.project_id === project.id);
-                    const unfolded = openProjects.has(project.id);
-                    return (
-                      <div
-                        key={project.id}
-                        className="navrail-project"
-                        data-over={dropOver === project.id ? "" : undefined}
-                        onDragOver={(event) => {
-                          if (event.dataTransfer.types.includes("text/session")) {
-                            // Required, or the browser refuses the drop.
-                            event.preventDefault();
-                            setDropOver(project.id);
-                          }
-                        }}
-                        onDragLeave={() =>
-                          setDropOver((was) => (was === project.id ? null : was))
-                        }
-                        onDrop={(event) => {
-                          event.preventDefault();
-                          setDropOver(null);
-                          const id = event.dataTransfer.getData("text/session");
-                          if (id) {
-                            onFileSession(id, project.id);
-                            // Opened, so the conversation is visible where it
-                            // just landed rather than seeming to disappear.
-                            setOpenProjects((was) => new Set(was).add(project.id));
-                          }
-                        }}
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          setMenu(menu === project.id ? null : project.id);
-                        }}
-                      >
-                        <button
-                          type="button"
-                          className="navrail-section"
-                          aria-expanded={unfolded}
-                          onClick={() =>
-                            setOpenProjects((was) => {
-                              const next = new Set(was);
-                              next.has(project.id)
-                                ? next.delete(project.id)
-                                : next.add(project.id);
-                              return next;
-                            })
-                          }
-                        >
-                          {/* One glyph whatever the fold is doing. The two
-                              folder files differ only by the tab line inside
-                              them, which is gone by 14px -- swapping them
-                              would claim a state the icon cannot show. The
-                              chevron at the far end reports it instead. */}
-                          <Icon name="folder" />
-                          <span>{project.name}</span>
-                          <span className="navrail-count mi">{mine.length}</span>
-                          <span className="navrail-chevron" aria-hidden="true">
-                            {unfolded ? "⌄" : "›"}
-                          </span>
-                        </button>
-                        {/* Right-click. Kept to the three things you would
-                            otherwise have to leave the rail for. */}
-                        {menu === project.id ? (
-                          <div className="navrail-menu" role="menu">
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => {
-                                setMenu(null);
-                                setOpenProjects((was) => new Set(was).add(project.id));
-                                onNewSessionIn(project.id);
-                              }}
-                            >
-                              New chat here
-                            </button>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={async () => {
-                                setMenu(null);
-                                const next = await ask("Rename project", {
-                                  value: project.name,
-                                  confirmLabel: "Rename",
-                                });
-                                if (next) onRenameProject(project.id, next);
-                              }}
-                            >
-                              Rename
-                            </button>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={async () => {
-                                setMenu(null);
-                                const yes = await confirm(DELETE_WARNING(project.name), {
-                                  title: "Delete project",
-                                  confirmLabel: "Delete",
-                                  destructive: true,
-                                });
-                                if (yes) onDeleteProject(project.id);
-                              }}
-                            >
-                              Delete project
-                            </button>
-                          </div>
-                        ) : null}
-
-                        <ul hidden={!unfolded}>
-                          <SessionRows
-                            sessions={mine}
-                            activeId={activeId}
-                            onOpenSession={onOpenSession}
-                            onDelete={onDelete}
-                            empty="Nothing filed here"
-                          />
-                        </ul>
-                        <button
-                          type="button"
-                          className="navrail-project-new"
-                          hidden={!unfolded}
-                          onClick={() => onNewSessionIn(project.id)}
-                        >
-                          + New chat here
-                        </button>
-                      </div>
-                    );
-                  })}
-
+                  {/* Every conversation, in one flat list.
+                   *
+                   * The projects used to be here too, each an unfoldable
+                   * section with its own chats nested inside and its own
+                   * context menu -- which made this a second, worse copy of
+                   * the Projects page inside a 252px column. Projects live in
+                   * one place now; this is the list of conversations, and a
+                   * chat's project shows as its colour rather than as a
+                   * folder it has to be dug out of.
+                   *
+                   * Every session, not just the unfiled ones. With the folds
+                   * gone a filed chat would otherwise have nowhere to appear
+                   * in the rail at all. */}
                   <ul
                     id="navrail-session-list"
                     data-over={dropOver === "unfiled" ? "" : undefined}
@@ -423,32 +324,21 @@ export function NavRail({
                       event.preventDefault();
                       setDropOver(null);
                       const id = event.dataTransfer.getData("text/session");
-                      // null unfiles it -- dragging out is the same gesture.
+                      // Dropping on the list takes a chat out of its project.
+                      // Filing it into one is done on the Projects page, which
+                      // is where the projects are.
                       if (id) onFileSession(id, null);
                     }}
                   >
                     <SessionRows
-                      sessions={sessions.filter((s) => !s.project_id)}
+                      sessions={sessions}
+                      projects={projects}
                       activeId={activeId}
                       onOpenSession={onOpenSession}
                       onDelete={onDelete}
                       empty="Nothing yet"
                     />
                   </ul>
-
-                  <button
-                    type="button"
-                    className="navrail-new"
-                    onClick={async () => {
-                      const name = await ask("Name for the new project", {
-                        placeholder: "Project name",
-                        confirmLabel: "Create",
-                      });
-                      if (name) onNewProject(name);
-                    }}
-                  >
-                    + New project
-                  </button>
                 </div>
               </div>
             </div>

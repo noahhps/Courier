@@ -1,8 +1,96 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ThemePicker } from "./ThemePicker";
 import { useDialog } from "./Dialog";
 import { swatchOf } from "../lib/theme";
+
+/* A project's two editable properties, in one popup.
+ *
+ * The colour used to open a swatch row inside the card and the name used to
+ * turn the heading into an input -- two different disclosures for two settings
+ * on the same folder, each shoving the conversations below it out of the way.
+ * Both are here now, over the card rather than inside it, so opening either
+ * one costs the page no layout at all.
+ *
+ * The name commits on Enter and on dismissal, and is abandoned on Escape.
+ * Committing on dismissal is the part worth stating: the colour swatches are
+ * in this same popup, so clicking one after typing a name has to keep the
+ * name -- a blur that discarded it, which is what the inline rename did, would
+ * throw the edit away for touching the control next to it.
+ */
+function ProjectEditor({ project, accent, seed, onRename, onAccent, onClose }) {
+  const node = useRef(null);
+  const [draft, setDraft] = useState(project.name);
+  // Read through a ref by the dismissal handlers, which are bound once and
+  // would otherwise close over the name as it was when the popup opened.
+  const latest = useRef(draft);
+  latest.current = draft;
+
+  useEffect(() => {
+    const commit = () => {
+      const clean = latest.current.trim();
+      if (clean && clean !== project.name) onRename(clean);
+      onClose();
+    };
+    const away = (event) => {
+      if (node.current && !node.current.contains(event.target)) commit();
+    };
+    const key = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    // pointerdown rather than click: a click that begins inside and ends
+    // outside -- dragging across a swatch row -- should not count as leaving.
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", key);
+    };
+  }, [project.name, onRename, onClose]);
+
+  return (
+    <div
+      ref={node}
+      className="popover prj-popover"
+      role="dialog"
+      aria-label={`Edit ${project.name}`}
+    >
+      <form
+        className="prj-popover-row"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const clean = draft.trim();
+          if (clean && clean !== project.name) onRename(clean);
+          onClose();
+        }}
+      >
+        <span className="mi">Name</span>
+        <input
+          type="text"
+          value={draft}
+          autoFocus
+          aria-label={`Rename ${project.name}`}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+      </form>
+
+      <div className="prj-popover-row">
+        <span className="mi">Accent</span>
+        <ThemePicker
+          value={accent || null}
+          onChange={onAccent}
+          scope="project"
+          seed={seed}
+          inheritedLabel="Follow the app-wide accent"
+        />
+        <p className="caveat" style={{ margin: 0 }}>
+          Worn by every conversation in here that has not chosen a colour of
+          its own.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 /* Projects, as a screen rather than a fold in the rail.
  *
@@ -30,11 +118,9 @@ export function Projects({
 }) {
   const { confirm } = useDialog();
   const [name, setName] = useState("");
-  const [renaming, setRenaming] = useState(null);
-  // Which folder has its swatch row open. One at a time: ten swatches under
-  // every card at once would bury the conversations the page is for.
-  const [recolouring, setRecolouring] = useState(null);
-  const [draftName, setDraftName] = useState("");
+  // Which folder has its editor open. One at a time -- the popup overlays the
+  // card, and two of them would be two dialogs fighting for the same corner.
+  const [editing, setEditing] = useState(null);
   // Which folder the pointer is currently over, so exactly one lights up.
   const [over, setOver] = useState(null);
 
@@ -145,40 +231,19 @@ export function Projects({
                   {...dropProps(project.id, project.id)}
                 >
                   <div className="prj-head">
-                    {renaming === project.id ? (
-                      <form
-                        className="prj-rename"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          const clean = draftName.trim();
-                          if (clean) onRenameProject(project.id, clean);
-                          setRenaming(null);
+                    <span className="h">
+                      <span
+                        className="accent-bead"
+                        aria-hidden="true"
+                        style={{
+                          background: swatchOf(
+                            accentOf?.(project),
+                            seedOfRecord?.(project),
+                          ),
                         }}
-                      >
-                        <input
-                          type="text"
-                          value={draftName}
-                          autoFocus
-                          aria-label={`Rename ${project.name}`}
-                          onChange={(event) => setDraftName(event.target.value)}
-                          onBlur={() => setRenaming(null)}
-                        />
-                      </form>
-                    ) : (
-                      <span className="h">
-                        <span
-                          className="accent-bead"
-                          aria-hidden="true"
-                          style={{
-                            background: swatchOf(
-                              accentOf?.(project),
-                              seedOfRecord?.(project),
-                            ),
-                          }}
-                        />
-                        {project.name}
-                      </span>
-                    )}
+                      />
+                      {project.name}
+                    </span>
                     <span className="mi">{mine.length}</span>
                   </div>
 
@@ -190,23 +255,19 @@ export function Projects({
                     )}
                   </ul>
 
-                  {/* Opened on demand rather than always on the card: the
-                      colour is a property of the folder, but the page is for
-                      seeing what is in one. */}
-                  {recolouring === project.id ? (
-                    <div className="prj-accents">
-                      <ThemePicker
-                        value={accentOf?.(project) || null}
-                        onChange={(accent) => onProjectAccent?.(project.id, accent)}
-                        scope="project"
-                        seed={seedOfRecord?.(project)}
-                        inheritedLabel="Follow the app-wide accent"
-                      />
-                      <p className="caveat" style={{ margin: 0 }}>
-                        Worn by every conversation in here that has not chosen
-                        a colour of its own.
-                      </p>
-                    </div>
+                  {/* Over the card, not inside it: the page is for seeing
+                      what is in a folder, and neither of a folder's settings
+                      should push its conversations down the screen to be
+                      changed. */}
+                  {editing === project.id ? (
+                    <ProjectEditor
+                      project={project}
+                      accent={accentOf?.(project)}
+                      seed={seedOfRecord?.(project)}
+                      onRename={(next) => onRenameProject(project.id, next)}
+                      onAccent={(accent) => onProjectAccent?.(project.id, accent)}
+                      onClose={() => setEditing(null)}
+                    />
                   ) : null}
 
                   <div className="prj-actions">
@@ -220,24 +281,13 @@ export function Projects({
                     <button
                       type="button"
                       className="mi"
-                      aria-expanded={recolouring === project.id}
+                      aria-expanded={editing === project.id}
+                      aria-haspopup="dialog"
                       onClick={() =>
-                        setRecolouring((was) =>
-                          was === project.id ? null : project.id,
-                        )
+                        setEditing((was) => (was === project.id ? null : project.id))
                       }
                     >
-                      accent
-                    </button>
-                    <button
-                      type="button"
-                      className="mi"
-                      onClick={() => {
-                        setDraftName(project.name);
-                        setRenaming(project.id);
-                      }}
-                    >
-                      rename
+                      edit
                     </button>
                     <button
                       type="button"

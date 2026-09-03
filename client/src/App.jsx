@@ -246,17 +246,7 @@ export default function App() {
           onTogglePin={togglePin}
           sessions={sessions.sessions}
           projects={projects.projects}
-          onNewProject={(name) => projects.create(name)}
-          onRenameProject={(id, name) => projects.rename(id, name)}
-          onNewSessionIn={handleNewSessionIn}
           onFileSession={handleFileSession}
-          onDeleteProject={async (id) => {
-            await projects.remove(id);
-            // The chats did not go anywhere, but their project_id did -- the
-            // rail would keep showing them under a folder that no longer
-            // exists until the session list is re-read.
-            await onSessionsChanged();
-          }}
           activeId={chat.sessionId}
           onOpenSession={handleOpenSession}
           onNewSession={handleNewSession}

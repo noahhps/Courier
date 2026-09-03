@@ -127,28 +127,73 @@ export function Composer({
   const stagedRef = useRef(staged);
   stagedRef.current = staged;
 
-  // Grow with the text, up to 40% of the viewport. The message list pads
-  // itself by --composer-h, so the last turn is never behind the box -- which
-  // means anything that changes the composer's height has to re-measure too.
-  useLayoutEffect(() => {
+  // Grow with the text, up to 40% of the viewport.
+  //
+  // The ceiling has a floor under it, which is not the tautology it sounds
+  // like. A window that has not been shown yet reports an innerHeight of 0 --
+  // the desktop shell now creates its window hidden and reveals it once the
+  // server answers, and a background tab can do the same -- and 40% of nothing
+  // is nothing, so `Math.min` collapsed the box to a sliver with the
+  // placeholder clipped in half. It then stayed that way, because this only
+  // re-runs when the text or the attachments change: nobody types into a
+  // composer they cannot see, so nothing ever asked it to grow back.
+  const autosize = useCallback(() => {
     const node = input.current;
+    if (!node) return;
     node.style.height = "auto";
-    node.style.height = Math.min(node.scrollHeight, window.innerHeight * 0.4) + "px";
-    document.documentElement.style.setProperty(
-      "--composer-h",
-      form.current.offsetHeight + "px",
-    );
-  }, [value, staged]);
+    // 320px is roughly eight lines -- a sane box to be handed if the viewport
+    // will not say how tall it is yet. The real value arrives on the next
+    // resize and replaces it.
+    const ceiling = (window.innerHeight || 800) * 0.4 || 320;
+    node.style.height = Math.min(node.scrollHeight, ceiling) + "px";
+
+    // How much of the composer is still on screen once it has withdrawn.
+    //
+    // On a thread the composer floats over the bottom of the sheet, so the
+    // thread has to keep clear of it -- but only of the part that is actually
+    // there. Reserving the whole box would leave a band of nothing between the
+    // last turn and a composer that has slid most of the way off the edge.
+    //
+    // `--tuck` is read back out of the stylesheet rather than repeated here,
+    // so how far it withdraws stays a single decision made in one place.
+    const box = form.current?.querySelector(".composer-box");
+    if (form.current && box) {
+      const tuck = parseFloat(getComputedStyle(box).getPropertyValue("--tuck")) / 100 || 0;
+      const peek = form.current.offsetHeight - tuck * box.offsetHeight;
+      document.documentElement.style.setProperty(
+        "--composer-peek",
+        Math.max(0, Math.round(peek)) + "px",
+      );
+    }
+  }, []);
+
+  useLayoutEffect(autosize, [autosize, value, staged]);
+
+  // And again whenever the window itself changes size, because the ceiling is
+  // a fraction of it. Listened for on `window` rather than folded into the
+  // ResizeObserver below: that one watches the composer, and resizing the
+  // composer from inside its own observer is how a resize loop starts.
+  useEffect(() => {
+    window.addEventListener("resize", autosize);
+    return () => window.removeEventListener("resize", autosize);
+  }, [autosize]);
 
   // The layout effect above covers everything that changes the composer's
   // contents. This covers everything that changes its box for other reasons --
   // the drawer opening and narrowing it, the window resizing, a font landing --
-  // any of which can rewrap the text and leave --composer-h stale, so the last
-  // turn ends up behind the input.
+  // any of which can rewrap the text and leave --composer-peek stale, so the
+  // last turn ends up behind the input.
   useEffect(() => {
     const node = form.current;
     const observer = new ResizeObserver(() => {
-      document.documentElement.style.setProperty("--composer-h", node.offsetHeight + "px");
+      const box = node.querySelector(".composer-box");
+      if (!box) return;
+      const tuck = parseFloat(getComputedStyle(box).getPropertyValue("--tuck")) / 100 || 0;
+      const peek = node.offsetHeight - tuck * box.offsetHeight;
+      document.documentElement.style.setProperty(
+        "--composer-peek",
+        Math.max(0, Math.round(peek)) + "px",
+      );
     });
     observer.observe(node);
     return () => observer.disconnect();
@@ -197,15 +242,23 @@ export function Composer({
 
     let frame = 0;
     let latest = null;
+    // Set the moment the thread is scrolled, cleared on the next pointer move.
+    // Reading is the one activity the composer is most in the way of, and the
+    // cursor is usually still sitting over the box from whatever was clicked
+    // last -- so without this, scrolling back through an answer happens with
+    // the composer parked over the end of it.
+    let reading = false;
 
     const set = (near) => node.style.setProperty("--near", near.toFixed(3));
 
     const measure = () => {
       frame = 0;
       if (!enabled()) return set(1);
-      // Focus outranks distance: while you are typing, the box stays put even
-      // if the pointer has wandered off to the other side of the window.
+      // Focus outranks everything: while you are typing, the box stays put --
+      // including through the autoscroll that a streaming reply causes, which
+      // would otherwise pull the composer out from under the caret.
       if (node.contains(document.activeElement)) return set(1);
+      if (reading) return set(0);
       if (!latest) return set(0);
 
       // Distance to the nearest edge of the box, which is 0 anywhere inside
@@ -225,6 +278,20 @@ export function Composer({
 
     const onMove = (event) => {
       latest = { x: event.clientX, y: event.clientY };
+      // Moving the pointer is how you ask for it back. Reaching toward the
+      // composer is the same gesture as before -- the scroll only suppresses
+      // it until you next show an interest.
+      reading = false;
+      schedule();
+    };
+
+    // Scroll does not bubble, so this is a capture-phase listener on the
+    // document rather than one bound to the thread: the composer has no
+    // reference to the scroller, and this way it also covers anything else
+    // that scrolls underneath it.
+    const onScroll = () => {
+      if (reading) return; // already down; nothing to recompute
+      reading = true;
       schedule();
     };
     // The pointer leaving the window entirely reads as "gone", not as "last
@@ -236,6 +303,7 @@ export function Composer({
     };
 
     window.addEventListener("pointermove", onMove, { passive: true });
+    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
     document.addEventListener("pointerleave", onLeave);
     node.addEventListener("focusin", schedule);
     node.addEventListener("focusout", schedule);
@@ -246,6 +314,7 @@ export function Composer({
     return () => {
       if (frame) cancelAnimationFrame(frame);
       window.removeEventListener("pointermove", onMove);
+      document.removeEventListener("scroll", onScroll, { capture: true });
       document.removeEventListener("pointerleave", onLeave);
       node.removeEventListener("focusin", schedule);
       node.removeEventListener("focusout", schedule);
