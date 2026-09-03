@@ -18,6 +18,7 @@ import { useChat } from "./hooks/useChat";
 import { useProjects } from "./hooks/useProjects";
 import { useRailWidth } from "./hooks/useRailWidth";
 import { useSessions } from "./hooks/useSessions";
+import { useTheme } from "./hooks/useTheme";
 import { UnauthorizedError, createApi } from "./lib/api";
 import { ApiContext } from "./lib/api-context";
 
@@ -94,6 +95,19 @@ export default function App() {
 
   const chat = useChat(api, { onSessionsChanged, provider });
   const { setBadge, openSession, startNew } = chat;
+
+  // The accent in force, and the three scopes it can be set from. Given the
+  // open conversation as well as the lists, because an accent set to `auto`
+  // is derived from what is being talked about -- it needs the messages, not
+  // just the session row.
+  const theme = useTheme({
+    api,
+    sessionId: chat.sessionId,
+    sessions: sessions.sessions,
+    projects: projects.projects,
+    title: chat.title,
+    messages: chat.messages,
+  });
 
   // -- bootstrap ------------------------------------------------------------
 
@@ -278,6 +292,15 @@ export default function App() {
                   await onSessionsChanged();
                 }}
                 onNewSession={handleNewSession}
+                accent={theme.sessionAccent}
+                accentSource={theme.source}
+                resolvedAccent={theme.active}
+                seed={theme.seed}
+                contextSeed={theme.contextSeed}
+                onAccent={async (accent) => {
+                  await theme.setForSession(chat.sessionId, accent);
+                  await onSessionsChanged();
+                }}
               />
 
               <MessageList
@@ -318,6 +341,12 @@ export default function App() {
               }}
               onNewSessionIn={handleNewSessionIn}
               onFileSession={handleFileSession}
+              accentOf={theme.accentFor}
+              seedOfRecord={theme.seedFor}
+              onProjectAccent={async (id, accent) => {
+                await theme.setForProject(id, accent);
+                await projects.refresh();
+              }}
             />
           ) : view === "calendar" ? (
             <Calendar api={api} onSessionsChanged={onSessionsChanged} />
@@ -336,6 +365,7 @@ export default function App() {
               sessions={sessions.sessions}
               onSessionsChanged={onSessionsChanged}
               onSignOut={() => signOut("")}
+              theme={theme}
             />
           )}
         </div>

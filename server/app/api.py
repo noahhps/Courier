@@ -29,6 +29,10 @@ from .situation import Situation
 from .store import Store
 from .skills.registry import Registry
 
+# Where the app-wide accent lives in `app_settings`. Namespaced like the
+# memory switches beside it, because that table is shared.
+APP_THEME_KEY = "theme.app"
+
 # Proxies love to buffer text/event-stream into uselessness.
 SSE_HEADERS = {
     "Cache-Control": "no-cache, no-transform",
@@ -171,6 +175,61 @@ class SessionProject(BaseModel):
     project_id: str | None = None
 
 
+class Accent(BaseModel):
+    """The colour a scope is dressed in -- what was chosen, not what it looks
+    like.
+
+    The palette is arithmetic the client does from a hue: a dozen surface
+    tints, four line weights and a contrast-checked accent all fall out of it.
+    Sending the result instead would mean storing that arithmetic in every row
+    and migrating the lot the first time a tint is adjusted, so the wire
+    carries the intent and the client does the maths.
+
+    `mode` is the whole of it:
+      auto    derived from what the conversation is about, and re-derived as
+              it goes on
+      preset  one of the named accents, in `preset`
+      custom  a hue the reader dialled in, in `hue` and `chroma`
+      off     no colour: the plain cobalt sheet this app shipped with
+    """
+
+    mode: str = Field(pattern="^(auto|preset|custom|off)$")
+    # Named rather than free text so a typo is a 422 here instead of a silently
+    # grey chat. The client holds the same list; this is the guard on it.
+    preset: str | None = Field(default=None, max_length=40, pattern="^[a-z][a-z0-9-]*$")
+    # Degrees around the hue circle, and how far from grey. The chroma ceiling
+    # is a little above the most saturated preset -- cobalt, at 0.216, which is
+    # the accent this app shipped with -- because "pick a hue" starts from
+    # whichever accent is already in force and has to be able to express it.
+    # Well under sRGB's own limit either way; the client's gamut mapping is
+    # what actually keeps a colour showable.
+    hue: float | None = Field(default=None, ge=0, le=360)
+    chroma: float | None = Field(default=None, ge=0, le=0.25)
+    # How strongly the palette is worn, from a hairline of colour to the full
+    # Apple-Music wash. One number so the three scopes can disagree about
+    # intensity without each needing its own vocabulary for it.
+    strength: float | None = Field(default=None, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def _complete(self) -> "Accent":
+        if self.mode == "preset" and not self.preset:
+            raise ValueError("a preset accent has to name one")
+        if self.mode == "custom" and self.hue is None:
+            raise ValueError("a custom accent has to carry a hue")
+        return self
+
+
+class AccentIn(BaseModel):
+    """A scope's accent, or None to hand the decision back up.
+
+    Cleared is not the same as off. Cleared means this conversation has no
+    opinion and its project decides; off is a decision, and it stops the
+    project's colour from reaching the chat.
+    """
+
+    theme: Accent | None = None
+
+
 class MCPServerIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     transport: str = Field(default="stdio", pattern="^(stdio|sse|http|streamable-http)$")
@@ -250,11 +309,24 @@ def build_router(
 ) -> APIRouter:
     router = APIRouter(dependencies=[Depends(auth)])
 
+    # The stored accent goes out as an object rather than as the JSON string
+    # the column holds, so nothing downstream has to parse a field twice. A
+    # row that no longer validates reads as no accent at all -- see GET /theme.
+    def _read_accent(row: dict) -> dict:
+        raw = row.get("theme")
+        accent = None
+        if raw:
+            try:
+                accent = Accent.model_validate_json(raw).model_dump(exclude_none=True)
+            except ValueError:
+                accent = None
+        return {**row, "theme": accent}
+
     # -- sessions ---------------------------------------------------------
 
     @router.get("/sessions")
     def list_sessions() -> dict:
-        return {"sessions": store.list_sessions()}
+        return {"sessions": [_read_accent(s) for s in store.list_sessions()]}
 
     @router.post("/sessions")
     def create_session(body: SessionIn | None = None) -> dict:
@@ -274,7 +346,7 @@ def build_router(
         # opening a conversation full of screenshots stays one small response.
         attached = store.attachments_for_session(session_id)
         return {
-            "session": session,
+            "session": _read_accent(session),
             "messages": [
                 {
                     **m.to_dict(),
@@ -314,7 +386,7 @@ def build_router(
 
     @router.get("/projects")
     def list_projects() -> dict:
-        return {"projects": store.list_projects()}
+        return {"projects": [_read_accent(p) for p in store.list_projects()]}
 
     @router.post("/projects")
     def create_project(body: ProjectIn) -> dict:
@@ -345,6 +417,59 @@ def build_router(
             raise HTTPException(404, "no such project")
         store.set_session_project(session_id, body.project_id)
         return {"ok": True, "project_id": body.project_id}
+
+    # -- accents ----------------------------------------------------------
+    #
+    # Three scopes, one shape. A chat's accent beats its project's, which beats
+    # the app's -- the resolution itself happens on the client, because it is
+    # the client that knows which conversation is on screen.
+
+    def _accent_fields(body: AccentIn) -> dict | None:
+        # `exclude_none` so a preset does not store a null hue beside itself:
+        # the column is read back straight into the same model, and a row is
+        # easier to reason about when it holds only what was actually chosen.
+        # The same shape goes back in the response, so what a PUT echoes is
+        # what a later GET will hand over.
+        return body.theme.model_dump(exclude_none=True) if body.theme else None
+
+    @router.put("/sessions/{session_id}/theme")
+    def set_session_theme(session_id: str, body: AccentIn) -> dict:
+        if not store.get_session(session_id):
+            raise HTTPException(404, "no such session")
+        accent = _accent_fields(body)
+        store.set_session_theme(session_id, json.dumps(accent) if accent else None)
+        return {"ok": True, "theme": accent}
+
+    @router.put("/projects/{project_id}/theme")
+    def set_project_theme(project_id: str, body: AccentIn) -> dict:
+        if not store.get_project(project_id):
+            raise HTTPException(404, "no such project")
+        accent = _accent_fields(body)
+        store.set_project_theme(project_id, json.dumps(accent) if accent else None)
+        return {"ok": True, "theme": accent}
+
+    @router.get("/theme")
+    def get_app_theme() -> dict:
+        """The app-wide accent -- the one every unclaimed scope falls back to.
+
+        A row written before a change to `Accent` can no longer parse. That is
+        a stale preference, not a broken server: it reads as "nothing chosen"
+        and the next thing the reader picks overwrites it.
+        """
+        stored = store.get_text_setting(APP_THEME_KEY)
+        if not stored:
+            return {"theme": None}
+        try:
+            accent = Accent.model_validate_json(stored)
+        except ValueError:
+            return {"theme": None}
+        return {"theme": accent.model_dump(exclude_none=True)}
+
+    @router.put("/theme")
+    def set_app_theme(body: AccentIn) -> dict:
+        accent = _accent_fields(body)
+        store.set_text_setting(APP_THEME_KEY, json.dumps(accent) if accent else None)
+        return {"ok": True, "theme": accent}
 
     # -- calendar ---------------------------------------------------------
 

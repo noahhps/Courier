@@ -132,7 +132,7 @@ export function Calendar({ api, onSessionsChanged }) {
   return (
     <div className="page">
       <div className="page-head" data-tint="violet">
-        <div className="sw" style={{ left: "-90px", top: "-110px", width: "280px", height: "280px", background: "#dedcf4" }} />
+        <div className="sw" style={{ left: "-90px", top: "-110px", width: "280px", height: "280px", background: "var(--violet-field)" }} />
         <div className="inner">
           <div>
             <h1 className="h">Calendar</h1>

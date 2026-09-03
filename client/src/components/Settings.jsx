@@ -10,7 +10,9 @@
 import { ManageChats } from "./ManageChats";
 import { useState } from "react";
 
+import { ThemePicker } from "./ThemePicker";
 import { autoSaveEnabled, setAutoSave } from "./SkillTrace";
+import { DEFAULT_ACCENT } from "../lib/theme";
 
 export function Settings({
   status,
@@ -22,6 +24,7 @@ export function Settings({
   api,
   sessions,
   onSessionsChanged,
+  theme,
 }) {
   const [autoSave, setAutoSaveState] = useState(autoSaveEnabled);
 
@@ -45,8 +48,8 @@ export function Settings({
   return (
     <div className="page">
       <div className="page-head" data-tint="blue">
-        <div className="sw" style={{ right: "-80px", top: "-120px", width: "290px", height: "290px", background: "#d3e0f6" }} />
-        <div className="sw" style={{ right: "130px", top: "-60px", width: "140px", height: "140px", background: "#dcd9f5" }} />
+        <div className="sw" style={{ right: "-80px", top: "-120px", width: "290px", height: "290px", background: "var(--violet-field)" }} />
+        <div className="sw" style={{ right: "130px", top: "-60px", width: "140px", height: "140px", background: "var(--blue-wash)" }} />
         <div className="inner">
           <div>
             <h1 className="h">This device</h1>
@@ -111,6 +114,35 @@ export function Settings({
             </div>
           </div>
 
+          {/* The accent, app-wide. This is the bottom of the stack of three:
+              a conversation with no accent of its own falls through to its
+              project, and a project with none falls through to here -- so
+              this is the only one of the three that cannot decline to
+              choose. */}
+          <div className="lane">
+            <span className="mi" data-strong>
+              Accent
+            </span>
+            <i />
+            <span className="mi">{theme?.source === "app" ? "in use" : "overridden here"}</span>
+          </div>
+
+          <div className="sur" style={{ padding: "18px" }}>
+            <ThemePicker
+              value={theme?.appAccent || DEFAULT_ACCENT}
+              onChange={(accent) => theme?.setApp(accent || DEFAULT_ACCENT)}
+              scope="app"
+              seed={theme?.contextSeed}
+            />
+            <p className="caveat" style={{ margin: "14px 0 0" }}>
+              <b>From the chat</b> reads what a conversation is about and
+              colours the app to match — locally, from words already on this
+              device, with nothing sent anywhere. A conversation or a project
+              can override this; a chat that has not chosen wears whatever is
+              set here.
+            </p>
+          </div>
+
           {/* Bulk management sits above sign-out: both are the destructive
               end of the page, and the one that actually destroys something
               should not be below the one that does not. */}
@@ -131,7 +163,7 @@ export function Settings({
             <button
               type="button"
               className="btn"
-              style={{ color: "var(--accent)", borderColor: "rgba(74,65,176,.4)" }}
+              style={{ color: "var(--accent)", borderColor: "var(--line-firm)" }}
               onClick={onSignOut}
             >
               Sign out

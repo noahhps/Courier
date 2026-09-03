@@ -1,4 +1,8 @@
+import { useEffect, useRef, useState } from "react";
+
 import { Icon } from "./Icon";
+import { ThemePicker } from "./ThemePicker";
+import { swatchOf } from "../lib/theme";
 
 /**
  * The 64px header from 1a: the conversation's name, what the system is doing,
@@ -19,7 +23,36 @@ export function TopBar({
   onProject,
   canFile,
   onNewSession,
+  accent,
+  onAccent,
+  seed,
+  contextSeed,
+  resolvedAccent,
+  accentSource,
 }) {
+  const [accentsOpen, setAccentsOpen] = useState(false);
+  const accentNode = useRef(null);
+
+  // Same dismissal as the provider menu at the foot of the rail: away, or
+  // Escape, and neither listener exists while the panel is shut.
+  useEffect(() => {
+    if (!accentsOpen) return undefined;
+    const away = (event) => {
+      if (accentNode.current && !accentNode.current.contains(event.target)) {
+        setAccentsOpen(false);
+      }
+    };
+    const key = (event) => {
+      if (event.key === "Escape") setAccentsOpen(false);
+    };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", key);
+    };
+  }, [accentsOpen]);
+
   return (
     <header className="topbar">
       <span className="title">{title}</span>
@@ -56,6 +89,54 @@ export function TopBar({
             ))}
           </select>
         </label>
+      ) : null}
+
+      {/* The accent, for this conversation only. Beside filing because both
+          are properties of the thread rather than of the app, and hidden for
+          the same reason: an unsent chat has no id to write one against. */}
+      {canFile ? (
+        <div className="topbar-accent" ref={accentNode}>
+          <button
+            type="button"
+            className="icon-btn accent-trigger"
+            aria-label="Accent for this conversation"
+            aria-expanded={accentsOpen}
+            onClick={() => setAccentsOpen((was) => !was)}
+          >
+            {/* The resolved accent, not this chat's own: a conversation
+                wearing its project's green is wearing green, and a bead that
+                went grey because the decision was made elsewhere would be
+                reporting on the plumbing rather than on the colour. */}
+            <span
+              className="accent-bead"
+              style={{ background: swatchOf(resolvedAccent, seed) }}
+            />
+          </button>
+
+          {accentsOpen ? (
+            <div className="popover popover-accents" role="dialog" aria-label="Accent">
+              <div className="popover-head mi" data-strong>
+                Accent · this chat
+              </div>
+              <ThemePicker
+                value={accent}
+                onChange={onAccent}
+                scope="chat"
+                seed={contextSeed}
+                inheritedLabel={
+                  projectId ? "Follow the project" : "Follow the app-wide accent"
+                }
+              />
+              <div className="popover-foot">
+                {accent
+                  ? "Set here, so this conversation keeps it."
+                  : accentSource === "project"
+                    ? "Coming from the project this chat is filed under."
+                    : "Coming from the app-wide accent."}
+              </div>
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       <button className="icon-btn" aria-label="New conversation" onClick={onNewSession}>

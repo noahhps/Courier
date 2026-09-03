@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 
+import { ThemePicker } from "./ThemePicker";
 import { useDialog } from "./Dialog";
+import { swatchOf } from "../lib/theme";
 
 /* Projects, as a screen rather than a fold in the rail.
  *
@@ -22,10 +24,16 @@ export function Projects({
   onDeleteProject,
   onNewSessionIn,
   onFileSession,
+  accentOf,
+  seedOfRecord,
+  onProjectAccent,
 }) {
   const { confirm } = useDialog();
   const [name, setName] = useState("");
   const [renaming, setRenaming] = useState(null);
+  // Which folder has its swatch row open. One at a time: ten swatches under
+  // every card at once would bury the conversations the page is for.
+  const [recolouring, setRecolouring] = useState(null);
   const [draftName, setDraftName] = useState("");
   // Which folder the pointer is currently over, so exactly one lights up.
   const [over, setOver] = useState(null);
@@ -93,7 +101,7 @@ export function Projects({
   return (
     <div className="page">
       <div className="page-head" data-tint="blue">
-        <div className="sw" style={{ left: "-90px", top: "-110px", width: "280px", height: "280px", background: "#d5e0f7" }} />
+        <div className="sw" style={{ left: "-90px", top: "-110px", width: "280px", height: "280px", background: "var(--violet-field)" }} />
         <div className="inner">
           <div>
             <h1 className="h">Projects</h1>
@@ -157,7 +165,19 @@ export function Projects({
                         />
                       </form>
                     ) : (
-                      <span className="h">{project.name}</span>
+                      <span className="h">
+                        <span
+                          className="accent-bead"
+                          aria-hidden="true"
+                          style={{
+                            background: swatchOf(
+                              accentOf?.(project),
+                              seedOfRecord?.(project),
+                            ),
+                          }}
+                        />
+                        {project.name}
+                      </span>
                     )}
                     <span className="mi">{mine.length}</span>
                   </div>
@@ -170,6 +190,25 @@ export function Projects({
                     )}
                   </ul>
 
+                  {/* Opened on demand rather than always on the card: the
+                      colour is a property of the folder, but the page is for
+                      seeing what is in one. */}
+                  {recolouring === project.id ? (
+                    <div className="prj-accents">
+                      <ThemePicker
+                        value={accentOf?.(project) || null}
+                        onChange={(accent) => onProjectAccent?.(project.id, accent)}
+                        scope="project"
+                        seed={seedOfRecord?.(project)}
+                        inheritedLabel="Follow the app-wide accent"
+                      />
+                      <p className="caveat" style={{ margin: 0 }}>
+                        Worn by every conversation in here that has not chosen
+                        a colour of its own.
+                      </p>
+                    </div>
+                  ) : null}
+
                   <div className="prj-actions">
                     <button
                       type="button"
@@ -177,6 +216,18 @@ export function Projects({
                       onClick={() => onNewSessionIn(project.id)}
                     >
                       new chat
+                    </button>
+                    <button
+                      type="button"
+                      className="mi"
+                      aria-expanded={recolouring === project.id}
+                      onClick={() =>
+                        setRecolouring((was) =>
+                          was === project.id ? null : project.id,
+                        )
+                      }
+                    >
+                      accent
                     </button>
                     <button
                       type="button"
