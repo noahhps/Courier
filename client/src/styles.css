@@ -112,7 +112,11 @@
      is a plausible strip for the frames before the first measurement, not a
      value anything relies on. */
   --composer-peek: 48px;
-  --rail-w: 76px;
+  /* The rail's footprint. Zero by default: unpinned it takes no space at all
+     and is revealed by hovering the window's edge, so there is no collapsed
+     strip to reserve room for. Pinned it becomes the open width, and the
+     narrow layout puts a real strip back -- see both overrides below. */
+  --rail-w: 0px;
   /* Wide enough for a conversation title to be recognisable before it
      ellipsises, which is the width the session list needs rather than the
      width the three destination labels need. */
@@ -377,40 +381,78 @@ svg {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 22px;
+  /* Between the panel's three blocks -- the wordmark row, the destinations,
+     the status foot. Wider than it was: with the collapsed strip gone the
+     rail is only ever seen at full width, where 22px read as a list that had
+     been squeezed into a column half this size. */
+  gap: 28px;
   padding: 22px 10px 18px;
   /* Grey against the white sheet, divided by a single hairline on the seam.
      A fill difference plus one line is the whole separation -- no radius, no
      outline, no shadow. */
   background: var(--shell);
   border-radius: 0;
-  box-shadow: inset -1px 0 0 var(--line-soft);
+  /* The seam, as a line rather than a shadow cast inward. `box-sizing` is
+     border-box everywhere, so this costs the panel a pixel of content width
+     instead of adding one to its footprint -- the rail stays exactly as wide
+     as `--rail-open` says. */
+  border-right: 1px solid var(--line-soft);
+  box-shadow: none;
   overflow: hidden;
-  transition: width var(--rail-motion), box-shadow var(--rail-motion),
-    padding var(--rail-motion), background var(--rail-motion),
-    border-radius var(--rail-motion);
+  transition: width var(--rail-motion), transform var(--rail-motion),
+    box-shadow var(--rail-motion), padding var(--rail-motion),
+    background var(--rail-motion), border-radius var(--rail-motion);
 }
 
-/* Opened, it stops being the page and becomes a panel: its own surface colour,
-   a radius, and a shadow to sit above the sheet. */
+/* Unpinned, the panel is off-canvas rather than narrow.
+ *
+ * It keeps its full width the whole time and slides on `transform`, which is
+ * the difference between a drawer arriving and a column being stretched: an
+ * animated width would rewrap every label in the panel on the way in, sixty
+ * times a second, for the entire journey.
+ *
+ * `.navrail` itself is zero-wide here, so this hangs off the left of a box
+ * with no width -- which is exactly what puts it off screen. `.app` clips, so
+ * nothing scrolls sideways to find it. */
+.app:not([data-rail="pinned"]) .navrail-inner {
+  width: var(--rail-open);
+  transform: translateX(-100%);
+}
+.app:not([data-rail="pinned"]) .navrail[data-open] .navrail-inner {
+  transform: translateX(0);
+}
+
+/* The strip of window that opens it.
+ *
+ * Inside `.navrail` so the rail's own enter/leave handlers see it. Narrow
+ * enough to stay out of the way of the text it sits over -- it does swallow
+ * pointer events in that lane, which is the price of an edge that reveals. */
+.navrail-edge {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 8px;
+}
+/* Pinned there is nothing to reveal, and the panel is already under the
+   pointer -- leaving it live would put an invisible strip over the panel's
+   own left edge. */
+.app[data-rail="pinned"] .navrail-edge {
+  display: none;
+}
+
+/* Opened, it stops being the page and becomes a panel: its own surface colour
+   and the divider down its edge.
+
+   No shadow, in either state. There were two here before -- an inset hairline
+   standing in for the seam, and an outward lift for when the panel floats over
+   the thread -- and between them the edge was never just a line. The border on
+   the base rule is the whole separation now, which is also what the rest of
+   this sheet does: "a fill difference plus one line", no gradients and no
+   shadow on a panel. */
 .navrail[data-open] .navrail-inner {
   width: var(--rail-open);
   padding: 22px 14px 18px;
   background: var(--menu);
   border-radius: 0;
-  /* Overlaid on the thread it still needs to lift off it, but only just: the
-     seam hairline plus a shallow shadow, never a floating card. */
-  box-shadow:
-    inset -1px 0 0 var(--line-soft),
-    18px 0 34px -28px rgba(20, 23, 29, 0.45);
-}
-
-/* Pinned it is not floating over anything -- the sheet sits beside it with the
-   shell showing between -- so it drops the shadow but keeps the rounded right
-   edge, and reads as the second panel on the page rather than as a flap over
-   the first. */
-.app[data-rail="pinned"] .navrail[data-open] .navrail-inner {
-  box-shadow: inset -1px 0 0 var(--line-soft);
 }
 
 /* The right edge of the open rail, as a drag handle.
@@ -439,7 +481,7 @@ svg {
   width: 3px;
   border-radius: 2px;
   background: transparent;
-  transition: background 0.14s ease;
+  transition: background 0.2s ease;
   pointer-events: none;
 }
 .navrail-resize:hover i,
@@ -585,7 +627,10 @@ svg {
      out through the bottom of the panel. */
   min-height: 0;
 }
-.navrail[data-open] .navrail-dest { gap: 4px; }
+/* Between the rows themselves. 4px was chosen when these were free-standing
+   pills that had to close up into a list; as the only state there is, it ran
+   the six destinations together into one block of text. */
+.navrail[data-open] .navrail-dest { gap: 10px; }
 
 .navrail-dest > button,
 .navrail-group > button {
@@ -593,18 +638,15 @@ svg {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Tall enough for the vertical label while shut; the two labels cross-fade
-     inside a box whose height is animated rather than jumped. */
-  /* Headroom over the tallest vertical label ("Memory", ~51px in Inter). The
-     label is absolutely positioned so it cannot stretch the box itself, and
-     `overflow: hidden` below would crop it -- this is the margin that keeps a
-     wider fallback face from being clipped. */
-  min-height: 72px;
+  /* Shut, this is a circle around a glyph and nothing else.
+
+     It used to be a 72px lozenge, tall enough to stand a sideways label up
+     inside -- so the closed rail was a column of rotated words, which is a
+     thing you read rather than a thing you recognise. Sized to the icon now:
+     34px square, centred on the rail's axis, and round while it is the only
+     shape in the column. */
+  min-height: 34px;
   padding: 4px;
-  /* Shut, the row is a lozenge just wide enough for the vertical label rather
-     than a block the full width of the rail -- a 56px box behind 11px of type
-     reads as a panel, not as a selected item. Centred, so the three of them
-     line up on the rail's axis. */
   width: 34px;
   align-self: center;
   border-radius: 17px;
@@ -639,12 +681,12 @@ svg {
    now, so hugging the text would leave the name floating off the pill. */
 .navrail[data-open] .navrail-dest > button,
 .navrail[data-open] .navrail-group > button {
-  min-height: 32px;
+  min-height: 36px;
   width: 100%;
   align-self: stretch;
   border-radius: 8px;
   justify-content: flex-start;
-  padding: 7px 10px;
+  padding: 9px 10px;
 }
 
 /* An open rail is a list of destinations, and a list is read in sentence case
@@ -663,39 +705,29 @@ svg {
   color: var(--ink);
 }
 
-/* Destination icons. Shut, the rail is 56px of vertical label and there is no
-   room beside it -- and a fixed-width child in a centred flex row is exactly
-   what pushed the mark and the status dot off the edge twice before. So the
-   glyph carries no width until the rail opens, the same trick the pin and the
-   wordmark use. */
+/* Destination icons. The closed rail is these and nothing else, so they are
+   present at every width -- they used to be held at zero width until the rail
+   opened, back when the sideways labels were what a shut rail showed.
+
+   One size in both states. Only the margin animates: shut there is nothing to
+   sit beside, open there is a name to make room for. Animating the width as
+   well would have the glyph breathe on every hover for no reason. */
 .navrail-dest button > .icon-mask,
 .navrail-group > button > .icon-mask {
-  width: 0;
-  opacity: 0;
+  width: 18px;
+  height: 18px;
+  opacity: 1;
   margin-right: 0;
-  transition: opacity 0.14s ease, width var(--rail-motion),
-    margin-right var(--rail-motion);
+  transition: margin-right var(--rail-motion);
 }
 .navrail[data-open] .navrail-dest button > .icon-mask,
 .navrail[data-open] .navrail-group > button > .icon-mask {
-  width: 16px;
-  opacity: 1;
   margin-right: 10px;
-  transition-delay: 0.06s;
 }
 
-/* The vertical copy is taken out of the flow so swapping to the horizontal one
-   cannot shift the row's geometry mid-transition. */
-.lbl-v {
-  position: absolute;
-  writing-mode: vertical-rl;
-  font: 500 var(--t-micro)/1 var(--font);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
-  opacity: 1;
-  transition: opacity 0.12s ease;
-}
-.navrail[data-open] .lbl-v { opacity: 0; transition-duration: 0.08s; }
+/* `.lbl-v`, the sideways copy of each name, used to live here. It was what the
+   rail showed while shut; the icons are that now, so it has been removed from
+   the markup rather than left hidden. */
 
 .lbl-h {
   min-width: 0;
@@ -717,6 +749,16 @@ svg {
   display: grid;
   grid-template-rows: 0fr;
   opacity: 0;
+  /* Without this the list cannot be squeezed.
+   *
+   * A flex item defaults to `min-height: auto`, which means "never smaller
+   * than my contents" -- so once there were more conversations than the panel
+   * had room for, this refused to shrink and simply drew itself over the
+   * destinations underneath. That is why New project sat on top of Calendar:
+   * not a z-index problem, a sizing one. Allowing it to shrink is what lets
+   * the row below become a real constraint, and the scroll below a real
+   * escape. */
+  min-height: 0;
   transition: grid-template-rows var(--rail-motion), opacity 0.16s ease;
 }
 .navrail[data-open] .navrail-sessions {
@@ -725,7 +767,11 @@ svg {
   transition-delay: 0.04s;
 }
 
+/* `hidden` while shut, because the 0fr row is what collapses the list and a
+   scrollbar mid-collapse is a flicker. Scrollable once open, so the
+   conversations the panel has no room for are reached rather than clipped. */
 .navrail-sessions-inner { overflow: hidden; min-height: 0; }
+.navrail[data-open] .navrail-sessions-inner { overflow-y: auto; }
 
 /* The fold above the conversations, in the shape 1c gives a section label:
    mono, tracked open, uppercase, with the chevron pushed to the far edge. */
@@ -748,6 +794,15 @@ svg {
   width: 14px;
   height: 14px;
   margin-right: 8px;
+}
+/* Carries a project's accent onto the folder glyph, and only onto the glyph:
+   colouring the row instead would drag the label off the rail's own type
+   colour and make an accented project shout where the others speak. The
+   descendant rule above still reaches the mask through this, and the mask
+   keeps its own margin, so the row's spacing is unchanged. */
+.navrail-section .navrail-project-icon {
+  display: inline-flex;
+  flex: none;
 }
 .navrail-chevron { margin-left: auto; font-size: var(--t-sm); line-height: 1; }
 
@@ -829,6 +884,8 @@ svg {
   flex-direction: column;
   gap: 8px;
   padding: 14px;
+  /* What the editor popup is measured against. */
+  position: relative;
   border: 1px solid var(--line);
   border-radius: var(--r-surface);
   background: var(--surface);
@@ -842,17 +899,6 @@ svg {
 
 .prj-head { display: flex; align-items: baseline; gap: 10px; }
 .prj-head .h { font-size: var(--t-md); flex: 1; min-width: 0; }
-.prj-rename { flex: 1; }
-.prj-rename input {
-  width: 100%;
-  padding: 4px 7px;
-  border: 1px solid var(--accent);
-  border-radius: 2px;
-  background: var(--surface);
-  font: 400 var(--t-md)/1.3 var(--font);
-  color: var(--ink);
-  outline: none;
-}
 
 .prj-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .prj-list li { border-radius: var(--r-surface); }
@@ -879,6 +925,37 @@ svg {
 }
 
 .prj-empty { padding: 6px 8px; color: var(--text-faint); }
+/* The editor, hung under the card it belongs to.
+ *
+ * Full card width rather than the rail popover's fixed 244px -- the swatch row
+ * inside needs the room, and matching the card is what makes it read as that
+ * card's own panel rather than a menu that happens to be nearby.
+ *
+ * `top: 100%` puts it below the card instead of over the conversations it is
+ * about, which is the whole reason it stopped being an inline block. */
+.prj-popover {
+  top: 100%;
+  left: 0;
+  right: 0;
+  width: auto;
+  margin-top: 6px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.prj-popover-row { display: flex; flex-direction: column; gap: 7px; }
+.prj-popover-row input {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--r-surface);
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 var(--t-sm)/1.3 var(--font);
+}
+.prj-popover-row input:focus { outline: none; border-color: var(--accent); }
+
 .prj-actions { display: flex; gap: 12px; padding-top: 2px; }
 .prj-actions button { color: var(--accent); }
 .prj-actions button:hover { color: var(--accent-hover); }
@@ -1615,10 +1692,10 @@ svg {
  * composer that is simply always visible, not one stuck half off the screen
  * with no way to discover it.
  *
- * Nothing here changes the composer's layout box. `--composer-h` is measured
- * from `.composer`, and a transform does not affect offsetHeight, so the
- * thread keeps padding for the full height and the last turn never shifts as
- * the box slides. The space under it stays reserved and stays empty. */
+ * Nothing here changes the composer's layout box. `--composer-peek` is derived
+ * from `.composer`'s own height and `--tuck`, not from where the box happens
+ * to be at this instant, so the thread's reserve is a constant -- the last
+ * turn never shifts as the box slides toward the cursor. */
 /* On a thread the composer floats over the foot of the sheet rather than
  * standing in the column.
  *
@@ -2471,6 +2548,21 @@ svg {
      Narrower when open, so it never swallows the whole screen. */
   :root { --rail-w: 56px; --rail-open: 172px; }
 
+  /* The hidden rail is a pointer idea and does not survive the trip to a
+     phone: an off-canvas panel revealed by hovering an 8px edge leaves a
+     finger with nothing to aim at and no way back to the app. So here the
+     strip stays, the panel widens rather than slides, and the edge trigger is
+     taken out of the way entirely. */
+  .app:not([data-rail="pinned"]) .navrail-inner {
+    width: var(--rail-w);
+    transform: none;
+  }
+  .app:not([data-rail="pinned"]) .navrail[data-open] .navrail-inner {
+    width: var(--rail-open);
+    transform: none;
+  }
+  .navrail-edge { display: none; }
+
   /* Less shell showing on a phone -- the framing is a nicety, the reading
      width is not. */
   .screen { margin: 6px; border-radius: 18px; }
@@ -2489,9 +2581,9 @@ svg {
   .navrail-dest > button,
   .navrail-group > button { width: 28px; border-radius: 14px; }
 
-  /* Same correction as the wide layout: the composer is a sibling below the
-     thread, not a panel over it, so its height is not clearance to reserve. */
-  .messages { padding: 20px 18px 20px; }
+  /* Same reserve as the wide layout: only the part of the composer still on
+     screen once it has withdrawn. */
+  .messages { padding: 20px 18px calc(var(--composer-peek) + 10px); }
   .composer { padding: 12px 18px 18px; }
   .topbar { padding: 0 16px 0 18px; }
 
@@ -2602,7 +2694,7 @@ svg {
 }
 
 /* Picked, not yet sent. Inside the composer box and above the text, so the
-   box grows and the message list's --composer-h padding follows it. */
+   box grows and the message list's --composer-peek reserve follows it. */
 .staged {
   list-style: none;
   display: flex;
@@ -2962,40 +3054,8 @@ svg {
   transition: background-color var(--accent-motion);
 }
 
-.screen::before,
-.navrail-inner::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  pointer-events: none;
-  opacity: var(--aura-opacity);
-  transition:
-    opacity var(--accent-motion),
-    --aura-1 var(--accent-motion),
-    --aura-2 var(--accent-motion),
-    --aura-3 var(--accent-motion);
-}
 
-.screen::before {
-  /* Overhanging every edge, so the falloff happens off-screen. */
-  inset: -30% -20% -35%;
-  background:
-    radial-gradient(72% 58% at 18% 104%, var(--aura-2), transparent 78%),
-    radial-gradient(66% 52% at 92% 82%, var(--aura-1), transparent 76%),
-    radial-gradient(88% 62% at 46% -12%, var(--aura-3), transparent 80%);
-}
 
-/* The rail gets the same field, turned down and turned around: it is a
-   62px-to-252px strip, so a gradient drawn for the sheet's proportions would
-   show as a single flat colour in it. */
-.navrail-inner { isolation: isolate; }
-.navrail-inner::before {
-  inset: -10% -40%;
-  opacity: calc(var(--aura-opacity) * 0.7);
-  background:
-    radial-gradient(60% 30% at 50% 108%, var(--aura-2), transparent 74%),
-    radial-gradient(70% 26% at 50% -6%, var(--aura-3), transparent 76%);
-}
 
 /* Motion is what makes a recolour readable rather than startling, so it is
    also the first thing to go when motion is not wanted. The colours still
@@ -3034,7 +3094,7 @@ svg {
   /* The ring that says "chosen", drawn at rest as the same size in the
      background colour so selecting one changes a colour rather than a size. */
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent);
-  transition: box-shadow 140ms ease, transform 140ms ease;
+  transition: box-shadow 200ms ease, transform 200ms ease;
 }
 .accent:hover { transform: scale(1.12); }
 .accent:focus-visible {
@@ -3176,10 +3236,3 @@ svg {
 .popover-accents .popover-head { padding: 2px 2px 10px; }
 .popover-accents .popover-foot { margin-top: 10px; }
 
-.prj-accents {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px 0 2px;
-  border-top: 1px solid var(--line-soft);
-}
