@@ -71,10 +71,12 @@ pub fn toggle(app: &AppHandle) {
         return;
     }
 
-    // Centred on show rather than once at startup: the panel should arrive on
-    // the display the reader is looking at, and that is not necessarily the one
-    // it was last on.
-    let _ = window.center();
+    // Deliberately *not* centred here. Centring on every show is the one line
+    // that makes a movable window pointless: drag the panel where you want it,
+    // dismiss it, summon it again, and it is back in the middle of the screen
+    // having thrown your decision away. It is centred once, by
+    // `tauri.conf.json`, and after that where it sits is the reader's business
+    // -- `tauri-plugin-window-state` remembers it across restarts.
     let _ = window.show();
     let _ = window.set_focus();
     // The page decides what "opened" means -- a fresh conversation, the input
@@ -124,24 +126,27 @@ pub fn register(app: &AppHandle) -> Option<String> {
 }
 
 /// Prepare the window at startup: frost it, and teach it to put itself away.
+///
+/// It used to dismiss itself the moment it lost focus, the way a menu does.
+/// That is the right behaviour for a panel you cannot move, and the wrong one
+/// the moment you can: arranging a window means clicking on things that are not
+/// it -- the desktop, the app underneath, the other edge of the screen -- and
+/// every one of those made it vanish mid-drag. Now it goes away when it is
+/// asked to: Escape, the shortcut again, or the close button.
 pub fn setup(app: &AppHandle) {
     let Some(window) = app.get_webview_window(LABEL) else {
         return;
     };
     frost(&window);
 
-    // Dismiss on losing focus, the way every other summoned panel behaves:
-    // clicking back into the thing you were doing should not leave this
-    // floating over it. Esc is handled in the page, where the keystroke lands.
+    // The close button hides rather than destroys. Destroying it would take the
+    // webview with it, so the next summon would pay for a fresh page load --
+    // and the whole point of the panel is that it is already there.
     let hidden = window.clone();
     window.on_window_event(move |event| {
-        // Handle window events for focus changes and closing
-        match event {
-            tauri::WindowEvent::Focused(false) => {
-                // Hide when losing focus (as before)
-                let _ = hidden.hide();
-            }
-            _ => {}
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let _ = hidden.hide();
         }
     });
 }

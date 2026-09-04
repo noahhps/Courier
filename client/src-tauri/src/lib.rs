@@ -34,6 +34,18 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // Where the windows were left, and how big. Position and size only:
+        // the default set also restores *visibility*, which would put QuickView
+        // back on screen at launch -- a panel that is supposed to arrive on a
+        // keystroke greeting you at login instead.
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::SIZE,
+                )
+                .build(),
+        )
         .manage(ManagedServer::default())
         .setup(|app| {
             let handle = app.handle();
