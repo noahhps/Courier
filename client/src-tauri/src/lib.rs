@@ -162,6 +162,30 @@ pub fn run() {
                 api.prevent_close();
                 let _ = window.hide();
             }
+
+            // Fullscreen turns the glass rail off.
+            //
+            // Translucency only means anything when there is something behind
+            // the window. Fullscreen covers the desktop entirely, so the
+            // material has nothing left to sample and returns a flat cast --
+            // which is why a green accent came out with a blue sidebar. The
+            // page cannot see this for itself: macOS fullscreen is a window
+            // state, not a viewport one, and there is no media query for it.
+            //
+            // Resized is what fires on the transition in both directions.
+            if let WindowEvent::Resized(_) = event {
+                if window.label() == "main" {
+                    let full = window.is_fullscreen().unwrap_or(false);
+                    // `eval` is on the webview, and this handler is handed the
+                    // window it sits in -- so the webview is fetched back off
+                    // the app handle rather than assumed.
+                    if let Some(view) = window.app_handle().get_webview_window("main") {
+                        let _ = view.eval(&format!(
+                            "document.documentElement.toggleAttribute('data-fullscreen', {full})"
+                        ));
+                    }
+                }
+            }
         })
         .build(tauri::generate_context!())
         .expect("error while building Courier");
