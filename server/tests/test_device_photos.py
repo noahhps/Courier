@@ -170,3 +170,38 @@ async def test_adding_one_photo_is_singular(granted, monkeypatch):
     monkeypatch.setattr(backend, "add_to_album", lambda t, i: (1, None))
     out = await skills.AddToAlbum().use("Korea", ["a"])
     assert "Added 1 photo to" in out
+
+
+# -- the crash that made every list_photos call fail ---------------------------
+
+
+class _TupleCoord:
+    """PyObjC on this build bridges CLLocationCoordinate2D as a plain tuple."""
+
+    def coordinate(self):
+        return (37.4419, -122.1430)
+
+
+class _StructCoord:
+    """Other builds hand back something with attributes."""
+
+    class _C:
+        latitude = 51.5072
+        longitude = -0.1276
+
+    def coordinate(self):
+        return self._C()
+
+
+def test_coordinates_survive_a_tuple_bridge():
+    lat, lon = backend._coordinate(_TupleCoord())
+    assert (round(lat, 4), round(lon, 4)) == (37.4419, -122.143)
+
+
+def test_coordinates_survive_a_struct_bridge():
+    lat, lon = backend._coordinate(_StructCoord())
+    assert (round(lat, 4), round(lon, 4)) == (51.5072, -0.1276)
+
+
+def test_a_photo_with_no_location_is_not_an_error():
+    assert backend._coordinate(None) == (None, None)

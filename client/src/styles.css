@@ -30,6 +30,37 @@
   --rail-base: rgba(0, 0, 0, 0.04);
   --surface-base: rgba(255, 255, 255, 0.7);
   
+  /* The names the rest of this sheet actually uses.
+   *
+   * The Liquid Glass palette above renamed the five surface tokens with a
+   * `-base` suffix, but the ~3,000 lines below it still ask for the old names.
+   * An unresolved `var()` is invalid at computed-value time and falls back to
+   * transparent, so every one of those surfaces stopped painting -- the sheet,
+   * the top bar, the composer -- and was left standing only on the webview's
+   * opaque backdrop. Measured before this: `body`, `.screen`, `.topbar` and
+   * `.composer-box` all computed to rgba(0,0,0,0).
+   *
+   * Aliases rather than a find-and-replace across the file: the glass palette
+   * is the thing being designed, and it should stay the one place those values
+   * are chosen. `theme.js` overwrites these same names at runtime per accent,
+   * which keeps working -- an inline style beats :root either way. */
+  /* ---- THE SIDEBAR GLASS ------------------------------------------------
+   *
+   * The rail paints no fill at all -- see `.navrail-inner` below. Its colour
+   * is the accent wash, a radial gradient whose strength is the theme's own
+   * `--aura-opacity`, multiplied for the rail in one place further down.
+   *
+   * Nothing to tune here any more: a flat tint over the material was what
+   * kept it looking opaque, however low the alpha went.
+   */
+
+  --shell: var(--shell-base);
+  --menu: var(--menu-base);
+  --menu-well: var(--menu-well-base);
+  --ground: var(--ground-base);
+  --rail: var(--rail-base);
+  --surface: var(--surface-base);
+
   --ink: #0f172a;
   --ink-light: #ffffff;
 
@@ -345,6 +376,184 @@ svg {
   height: 100%;
   overflow: hidden;
   background: var(--shell);
+}
+
+/* -- the glass rail, and only the rail --------------------------------------
+ *
+ * Applied only in the desktop shell, where a native material sits behind the
+ * window. `data-shell` is set in main.jsx from the injected IPC bridge.
+ *
+ * Two halves, and the second is the one that matters. Cutting the hole is
+ * easy: html, body and `.app` stop painting so the material shows through the
+ * rail. Keeping the hole the right size is the hard part -- several of the
+ * glass tokens are deliberately translucent (`--surface-base` is 70% white,
+ * `--ground-base` 90%), which is the intended look *over an opaque window* and
+ * turns the whole sheet into frosted glass the moment the window is not.
+ *
+ * So the sheet's own tokens are pinned opaque below. The rail keeps the
+ * translucency; the sheet is a drafting surface, and one you can see your
+ * desktop through cannot be read.
+ *
+ * Applied unconditionally, with no `html[data-shell]` gate in front of it.
+ * The gate was a feature test for "are we inside the desktop shell", and it
+ * kept answering no -- silently, with no way to see which answer it had given
+ * from outside the webview. The glass does not actually need to know: in the
+ * app these layers reveal the native material, and in a browser they reveal
+ * the page canvas, which is white and perfectly acceptable. Trading a correct
+ * browser background for a rail that reliably works is the right way round,
+ * and it removes a whole class of "why is nothing happening". */
+html,
+body,
+#root,
+.app {
+  background: transparent !important;
+}
+/* `!important`, deliberately, and this is the one place in the sheet that
+ * earns it.
+ *
+ * The rail's ground is set from several directions -- `.navrail-inner` itself,
+ * `.navrail[data-open] .navrail-inner` when the rail is unfolded, and the
+ * accent machinery on top of both. Winning that on specificity means writing a
+ * longer selector than each of them and writing another one every time a rule
+ * is added. This is not a style being nudged; it is a mode, where the rail
+ * stops being paint and becomes glass, and it has to beat every ordinary
+ * declaration by construction rather than by arithmetic. */
+.navrail-inner,
+.navrail[data-open] .navrail-inner {
+  /* Glass, tinted by whichever accent is selected.
+   *
+   * Not a wash token per colour: `theme.js` rewrites `--accent` when the
+   * accent changes -- per chat, per project, or app-wide -- and deriving the
+   * tint from it here means the rail follows all three without any of them
+   * knowing about the rail. One declaration, every accent.
+   *
+   * The alpha is the whole design. Low enough that the desktop's own light and
+   * colour still carry through the material behind it, high enough that the
+   * rail reads as a tinted pane rather than as a smudge -- which is the
+   * difference between glass and dirt.
+   *
+   * Two declarations for one property: `color-mix` is the fallback and the
+   * relative-colour form is the exact one, since mixing *toward* `transparent`
+   * drags the result toward black in some engines. The later wins wherever it
+   * is understood, and WebKit here understands it. */
+  /* No fill. The white was the opaqueness.
+   *
+   * Every version of this painted a near-white over the rail -- 0.62, then
+   * 0.22, then an accent mixed into rgba(246,247,250,0.162). Lowering the
+   * alpha never fixed it, because white over a pale material still looks like
+   * white: the tint itself was the problem, not its strength.
+   *
+   * So the rail paints nothing and is the native material straight through.
+   * Its colour is the accent wash below -- a radial gradient rather than a
+   * flat sheet, which is what reads as stained glass instead of frosting.
+   *
+   * But only when the rail is a region of the window. Unpinned, `--rail-w` is
+   * 0 and `.navrail-inner` is absolutely positioned -- the rail is an overlay
+   * floating *on top of the sheet*, which is what the z-index and the "the
+   * opened panel paints over" note above are about. Made transparent in that
+   * state it reveals the conversation underneath, not the desktop, and the
+   * title collides with the wordmark. Its fill was the only thing hiding the
+   * sheet.
+   *
+   * So: opaque while it overlays, glass once it is pinned and has a column of
+   * the window to itself. There is no third option -- you cannot see through
+   * a panel to something that is behind the thing it is covering. */
+  background: var(--menu) !important;
+
+}
+
+/* Pinned, the rail owns a column of the window: `--rail-w` becomes
+   `--rail-open`, the sheet starts to its right, and there is nothing behind it
+   but the native material. That is the only state in which glass is possible,
+   and here it is -- no fill at all, coloured solely by the accent wash. */
+.app[data-rail="pinned"] .navrail-inner {
+  /* QuickView's glass, to the value.
+   *
+   * `--qv-glass` in quickview.css is rgba(120,128,145,0.28) in the dark
+   * scheme and rgba(255,255,255,0.42) in the light one, over HudWindow
+   * vibrancy -- which the main window now uses too. Same material, same fill,
+   * same result: the rail should look like the panel, not like a relative.
+   *
+   * Written out rather than imported: quickview.css is a separate bundle that
+   * this page never loads, so sharing the token would mean a third file for
+   * two declarations. The comment is the link. */
+  /* Liquid glass, not frost.
+   *
+   * The difference is not how much you can see through it -- it is what the
+   * surface does with the light. A frosted panel is one flat translucent fill
+   * over a blur: even, matte, dead. Glass has a gradient across it because it
+   * is curved, it saturates what is behind it rather than greying it, and it
+   * catches a hard specular line on the edge where it turns.
+   *
+   * So: a diagonal luminance ramp instead of a flat wash, saturation and a
+   * little brightness pushed *up* on the backdrop so colour comes through
+   * living rather than washed, and three inset rim lights -- bright on the
+   * leading edge where the light lands, softer on the top, faintest on the
+   * trailing edge. The fill is barely there; the highlights do the work. */
+  background: linear-gradient(
+    158deg,
+    rgba(255, 255, 255, 0.20) 0%,
+    rgba(255, 255, 255, 0.06) 42%,
+    rgba(255, 255, 255, 0.13) 100%
+  ) !important;
+  -webkit-backdrop-filter: saturate(120%) brightness(1.08);
+  backdrop-filter: saturate(120%) brightness(1.08);
+  box-shadow:
+    inset 1px 0 0 rgba(255, 255, 255, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    inset -1px 0 0 rgba(255, 255, 255, 0.16);
+}
+
+@media (prefers-color-scheme: dark) {
+  .app[data-rail="pinned"] .navrail-inner {
+    /* Same construction, less of it: on a dark ground the rim lights carry the
+       edge and the fill only has to keep the panel from vanishing. */
+    background: linear-gradient(
+      158deg,
+      rgba(255, 255, 255, 0.14) 0%,
+      rgba(255, 255, 255, 0.04) 42%,
+      rgba(255, 255, 255, 0.09) 100%
+    ) !important;
+  }
+}
+
+/* The seam is a neutral hairline, not an accent one. On a material this pale
+   a coloured edge is the first thing the eye finds, and the reference draws it
+   as the faintest possible separation between two panes of the same stuff. */
+.navrail[data-open] .navrail-inner {
+  /* Light, not a dark line. A grey hairline is the giveaway of a flat panel;
+     glass ends on a lit edge, which the rim shadow above already draws. This
+     just stops the old grey seam fighting it. */
+  border-right-color: rgb(255 255 255 / 0.22) !important;
+}
+
+/* The accent wash, turned back up.
+ *
+ * It never left -- `.navrail-inner` sets `isolation: isolate`, so the radial
+ * layer at `z-index: -1` paints above the rail's own background rather than
+ * under it. What happened is that the flat ground beneath it went from an
+ * opaque grey to a pale translucent one, and the wash, drawn at 0.7 of the
+ * sheet's opacity for an opaque rail, no longer had anything to read against.
+ *
+ * So it is scaled for glass instead: the radial colour is now the rail's main
+ * source of colour and the flat `--sidebar-accent` is only there to keep it from
+ * going grey where the wash falls off. Still driven by `--aura-opacity`, which
+ * is zero when no accent is chosen -- a rail with no accent stays neutral, as
+ * it should. */
+.navrail-inner::before {
+  /* Step two, not step one. Left at the theme's own strength so the rail is
+     plain glass first -- raise this multiplier to bring the accent in. */
+  opacity: calc(var(--aura-opacity) * 1) !important;
+}
+.screen {
+  /* Opaque overrides, scoped to the sheet so the rail is unaffected. Set as
+     tokens rather than as one background, so every surface nested inside --
+     the composer, the top bar, cards, callouts -- inherits the opaque value
+     without each needing a rule of its own. */
+  --ground: #ffffff;
+  --surface: #ffffff;
+  --rail: #f4f6fa;
+  background-color: var(--ground);
 }
 
 /* The rail from 1a: a mark for identity, the three destinations set

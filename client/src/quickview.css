@@ -1,17 +1,4 @@
-/* QuickView's own stylesheet.
- *
- * Deliberately not `styles.css`. That file is 3,000 lines describing a windowed
- * app with a rail, a sheet and six screens, and none of it applies to a 640px
- * panel with no chrome. The tokens it needs are repeated here rather than
- * imported, which is the cheaper of the two mistakes: a small duplication
- * against loading a stylesheet that is fifty times the size of the page.
- *
- * The glass is two layers. The blur of the *desktop* behind the window is a
- * native material applied in Rust (`window-vibrancy`); CSS cannot reach outside
- * its own document. What is here is the tint, the edge and the inner highlight
- * that sit on top of that material -- which is what makes it read as a pane of
- * glass rather than as a grey rectangle.
- */
+/* QuickView's own stylesheet. */
 
 :root {
   --qv-ink: #f4f6fa;
@@ -25,8 +12,6 @@
   --qv-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* Transparent all the way down. Any opaque background here would paint over
-   the native material and the window would look like a solid grey box. */
 html,
 body.qv-body {
   margin: 0;
@@ -41,14 +26,7 @@ body.qv-body {
 #quickview {
   height: 100%;
   display: flex;
-  /* The panel sits at the bottom of the window and grows upward, so the
-     composer stays where the eye already is between one question and the next
-     rather than sliding down the screen as the conversation gets longer. */
   align-items: flex-end;
-  /* The extra room at the top is the titlebar. `titleBarStyle: Transparent`
-     means the webview runs underneath it rather than starting below it, so
-     without this the close and zoom buttons sit on top of the panel's own
-     header. Nothing draws there; it is the strip you grab to move the window. */
   padding: 30px 14px 14px;
   box-sizing: border-box;
 }
@@ -63,8 +41,6 @@ body.qv-body {
   overflow: hidden;
 }
 
-/* Before anything is said the panel is a composer and nothing else -- no
-   header, no empty transcript, no frame around a void. */
 .qv:not([data-started]) .qv-composer {
   border-radius: var(--qv-radius);
 }
@@ -77,22 +53,7 @@ body.qv-body {
     inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
-.qv-head {
-  flex: none;
-  padding: 13px 18px;
-  background: transparent;
-  border-bottom: none;
-  /* The whole bar drags the window: a chromeless panel has no titlebar, and
-     something has to be grabbable or it can never be moved off what it covers. */
-  cursor: default;
-}
-
-.qv-title {
-  font-size: 15px;
-  letter-spacing: -0.01em;
-  color: var(--qv-ink);
-}
-
+/* Thread ---------------------------------------------------------------- */
 .qv-thread {
   flex: 1 1 auto;
   min-height: 0;
@@ -106,8 +67,6 @@ body.qv-body {
   line-height: 1.65;
 }
 
-/* No bubbles. Alignment carries who is speaking, which is enough at this size
-   and keeps a small panel from filling up with borders. */
 .qv-turn {
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -128,6 +87,7 @@ body.qv-body {
   color: #ffd9a8;
 }
 
+/* Composer + Drop zone --------------------------------------------------- */
 .qv-composer {
   flex: none;
   margin: 0;
@@ -140,6 +100,7 @@ body.qv-body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  position: relative;          /* for DropZone absolute overlay */
 }
 .qv[data-started] .qv-composer {
   border: none;
@@ -148,31 +109,124 @@ body.qv-body {
   border-radius: 0;
 }
 
-.qv-composer textarea {
-  width: 100%;
-  border: none;
-  outline: none;
-  resize: none;
-  background: transparent;
-  color: var(--qv-ink);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.55;
-  max-height: 160px;
-  box-sizing: border-box;
+/* Visual feedback while dragging files. */
+.qv-composer[data-dropping] {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: var(--qv-accent);
 }
-.qv-composer textarea::placeholder {
-  color: var(--qv-faint);
+@media (prefers-color-scheme: light) {
+  .qv-composer[data-dropping] {
+    background: rgba(255, 255, 255, 0.75);
+    border-color: var(--qv-accent);
+  }
 }
 
+/* Drop-zone overlay (centered "Drop files here" pill row) --------------- */
+.qv-drop-zone {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  pointer-events: none;        /* let the drop event fire on the window */
+  z-index: 3;
+}
+.qv-drop-zone::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);   /* dims the glass underneath */
+  z-index: -1;
+}
+@media (prefers-color-scheme: light) {
+  .qv-drop-zone::before {
+    background: rgba(255, 255, 255, 0.65);
+  }
+}
+
+.qv-drop-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.qv-drop-count {
+  padding: 4px 10px;
+  background: var(--qv-glass-strong);
+  border-radius: 999px;
+  font-size: 11px;
+}
+.qv-drop-label {
+  font-size: 14px;
+  color: var(--qv-dim);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* Staged attachment pills (in the composer before send) ------------------ */
+.qv-staged {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qv-staged-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--qv-dim);
+}
+
+.qv-staged-thumb {
+  width: 18px;
+  height: 18px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.qv-staged-name {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qv-staged-remove {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--qv-faint);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.qv-staged-remove:hover {
+  color: var(--qv-ink);
+  background: rgba(0, 0, 0, 0.1);
+}
+
+/* Composer row (buttons) ------------------------------------------------ */
 .qv-composer-row {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.qv-spacer {
-  flex: 1;
-}
+.qv-spacer { flex: 1; }
 
 .qv-round {
   width: 28px;
@@ -189,13 +243,8 @@ body.qv-body {
   cursor: pointer;
   transition: background 140ms ease, opacity 140ms ease;
 }
-.qv-round:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.22);
-}
-.qv-round:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
+.qv-round:hover:not(:disabled) { background: rgba(255, 255, 255, 0.22); }
+.qv-round:disabled { opacity: 0.4; cursor: default; }
 .qv-round svg {
   width: 15px;
   height: 15px;
@@ -211,24 +260,48 @@ body.qv-body {
   border-color: transparent;
   color: #fff;
 }
-.qv-send:hover:not(:disabled) {
-  background: #5d89ff;
+.qv-send:hover:not(:disabled) { background: #5d89ff; }
+.qv-send svg { stroke: currentColor; stroke-width: 2; }
+
+/* Textarea */
+.qv-composer textarea {
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--qv-ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  max-height: 160px;
+  box-sizing: border-box;
+}
+.qv-composer textarea::placeholder { color: var(--qv-faint); }
+
+/* Sent attachments (in thread) ------------------------------------------- */
+.qv-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.qv-attach-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.qv-attach-chip {
+  padding: 3px 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--qv-dim);
 }
 
-/* Make send button arrow and attachment icon more visible */
-.qv-send svg {
-  stroke: var(--qv-ink);
-  stroke-width: 2;
-}
-
-.qv-attach svg {
-  stroke: var(--qv-ink);
-  stroke-width: 2;
-}
-
-/* The panel is drawn for the dark, frosted material it floats on. On a light
-   desktop the system material lightens underneath it, so the text has to come
-   back the other way or it disappears into its own background. */
+/* Light-mode overrides --------------------------------------------------- */
 @media (prefers-color-scheme: light) {
   :root {
     --qv-ink: #0e1420;
@@ -238,13 +311,7 @@ body.qv-body {
     --qv-glass-strong: rgba(255, 255, 255, 0.55);
     --qv-edge: rgba(20, 23, 29, 0.1);
   }
-  .qv-round {
-    background: rgba(20, 23, 29, 0.06);
-  }
-  .qv-round:hover:not(:disabled) {
-    background: rgba(20, 23, 29, 0.12);
-  }
-  .qv-error {
-    color: #8a5a12;
-  }
+  .qv-round { background: rgba(20, 23, 29, 0.06); }
+  .qv-round:hover:not(:disabled) { background: rgba(20, 23, 29, 0.12); }
+  .qv-error { color: #8a5a12; }
 }

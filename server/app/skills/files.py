@@ -32,6 +32,17 @@ HIDDEN = {
     "Library", ".Trash", ".venv", "__pycache__",
 }
 
+# macOS bundles: directories the Finder presents as single opaque files. Their
+# insides are a private database format, so walking one yields thousands of
+# meaningless names and no readable content.
+#
+# `.photoslibrary` is the one that matters. It sits in ~/Pictures, which is a
+# shared root, so a model asked about photos finds it, reasons that a folder
+# named "Photos Library" is where photos live, and disappears into it -- which
+# is exactly what happened. There is a skill for photos; this makes sure the
+# wrong road is not on the map.
+PACKAGES = {".photoslibrary", ".app", ".bundle", ".framework", ".photolibrary", ".imovielibrary", ".tvlibrary"}
+
 # Extensions read as text. Anything else is reported by name and size rather
 # than decoded -- handing a model a megabyte of mangled JPEG bytes wastes the
 # window and tells it nothing.
@@ -61,7 +72,12 @@ def _hidden(path: Path, roots: tuple[Path, ...]) -> bool:
     for root in roots:
         if path == root or root in path.parents:
             relative = path.relative_to(root)
-            return any(part in HIDDEN or part.startswith(".") for part in relative.parts)
+            return any(
+                part in HIDDEN
+                or part.startswith(".")
+                or any(part.lower().endswith(suffix) for suffix in PACKAGES)
+                for part in relative.parts
+            )
     return True
 
 

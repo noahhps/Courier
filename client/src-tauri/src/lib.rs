@@ -49,6 +49,50 @@ pub fn run() {
         .manage(ManagedServer::default())
         .setup(|app| {
             let handle = app.handle();
+
+            // The material behind the glass rail. `Sidebar` is what the system
+            // uses for this exact region, so the rail picks up the desktop the
+            // way Finder's does. The sheet paints over it -- see the
+            // `html[data-shell]` rules in styles.css, which pin the sheet's
+            // tokens opaque so the translucency stops at the rail's edge.
+            #[cfg(target_os = "macos")]
+            if let Some(main) = handle.get_webview_window("main") {
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+
+                // The webview paints its own opaque ground unless told not to.
+                // `transparent: true` on the window is not enough on its own --
+                // the material ends up behind an opaque sheet of nothing.
+                if let Err(err) = main.set_background_color(None) {
+                    eprintln!("[glass] could not clear the webview background: {err}");
+                }
+
+                // The same material QuickView uses, on purpose. `Sidebar` is
+                // the semantically correct one for this region, but it is a
+                // paler, flatter frost, and the rail is meant to look like the
+                // panel -- same glass, same room.
+                match apply_vibrancy(
+                    &main,
+                    NSVisualEffectMaterial::HudWindow,
+                    Some(NSVisualEffectState::Active),
+                    None,
+                ) {
+                    Ok(()) => println!("[glass] sidebar vibrancy applied to the main window"),
+                    // Reported, not swallowed. A silent failure here is
+                    // indistinguishable from a CSS problem, which is exactly
+                    // the confusion this cost once already.
+                    Err(err) => eprintln!("[glass] vibrancy refused: {err}"),
+                }
+
+                // The stylesheet keys the glass rail off `data-shell`, which
+                // the page sets for itself. Set again from here so the styling
+                // does not depend on a feature check in the page being right --
+                // if the page already set it this is a no-op, and if its check
+                // ever fails this is what saves the rail.
+                let _ = main.eval(
+                    "document.documentElement.setAttribute('data-shell','tauri')",
+                );
+            }
+
             quickview::setup(handle);
             let bound = quickview::register(handle);
 

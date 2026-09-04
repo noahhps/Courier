@@ -21,7 +21,9 @@
         "center": true,
         "titleBarStyle": "Transparent",
         "hiddenTitle": true,
-        "visible": false
+        "visible": false,
+        "dragDropEnabled": false,
+        "transparent": true
       },
       {
         "label": "quickview",
@@ -40,9 +42,8 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "shadow": true,
-        "visible": false
-        
-
+        "visible": false,
+        "dragDropEnabled": false
       }
     ],
     "security": {

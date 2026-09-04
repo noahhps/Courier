@@ -134,10 +134,32 @@ def _to_nsdate(when: datetime):
     return Foundation.NSDate.dateWithTimeIntervalSince1970_(when.timestamp())
 
 
+def _coordinate(location) -> tuple[float | None, float | None]:
+    """Latitude and longitude out of a CLLocation, whichever shape it arrives in.
+
+    PyObjC bridges `CLLocationCoordinate2D` as a plain tuple on this build, not
+    as an object with `.latitude` -- which is why reading the attribute crashed
+    every call to `list_photos`. Both shapes are accepted rather than picking
+    one, because the bridge's choice is a property of the installed pyobjc and
+    not something this file should depend on.
+    """
+    if location is None:
+        return None, None
+    coord = location.coordinate()
+    if coord is None:
+        return None, None
+    latitude = getattr(coord, "latitude", None)
+    if latitude is None:
+        try:
+            return float(coord[0]), float(coord[1])
+        except (TypeError, IndexError, ValueError):
+            return None, None
+    return float(latitude), float(coord.longitude)
+
+
 def _asset(a) -> DevicePhoto:
     created = a.creationDate()
-    location = a.location()
-    coord = location.coordinate() if location else None
+    latitude, longitude = _coordinate(a.location())
     return DevicePhoto(
         identifier=str(a.localIdentifier()),
         created_at=(
@@ -145,8 +167,8 @@ def _asset(a) -> DevicePhoto:
             if created
             else None
         ),
-        latitude=float(coord.latitude) if coord else None,
-        longitude=float(coord.longitude) if coord else None,
+        latitude=latitude,
+        longitude=longitude,
         width=int(a.pixelWidth()),
         height=int(a.pixelHeight()),
         favourite=bool(a.isFavorite()),

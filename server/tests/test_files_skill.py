@@ -209,3 +209,23 @@ async def test_several_roots_still_offer_the_choice(tree, tmp_path):
     out = await ListDirectory(many).use()
     assert "I can look in" in out
     assert str(second) in out
+
+
+# -- the road that led into the Photos library --------------------------------
+
+
+def test_a_photos_library_package_is_not_walkable(settings):
+    """It is an opaque database, and there is a photo skill for photos."""
+    library = settings.device_roots[0] / "Photos Library.photoslibrary"
+    (library / "originals").mkdir(parents=True)
+    with pytest.raises(OutsideRoots):
+        resolve("Photos Library.photoslibrary", settings.device_roots)
+    with pytest.raises(OutsideRoots):
+        resolve("Photos Library.photoslibrary/originals", settings.device_roots)
+
+
+@pytest.mark.anyio
+async def test_packages_are_not_listed(settings):
+    (settings.device_roots[0] / "Photos Library.photoslibrary").mkdir()
+    out = await ListDirectory(settings).use()
+    assert "photoslibrary" not in out

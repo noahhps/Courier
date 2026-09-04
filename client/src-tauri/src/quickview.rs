@@ -35,7 +35,7 @@ pub fn shortcut_spec() -> String {
 /// `backdrop-filter` in CSS blurs what is behind an element *within the
 /// document*. Blurring the desktop behind the window is a native material, so
 /// it is applied to the window and the page is left transparent on top of it.
-fn frost(window: &WebviewWindow) {
+pub fn frost(window: &WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
         use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
