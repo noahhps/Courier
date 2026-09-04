@@ -58,7 +58,7 @@ MAX_WINDOW_IMAGES = 4
 # How many times a turn may go back to the model after running skills. A local
 # model handed a shelf of them will loop on near-identical calls; this is the
 # thing that stops a bad turn from burning the whole context window.
-MAX_TOOL_ROUNDS = 8
+MAX_TOOL_ROUNDS = 12
 
 # A skill's result is trimmed here rather than in build_window, because the
 # window trims from the *head* -- so an unbounded result would push out the

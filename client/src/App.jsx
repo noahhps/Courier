@@ -4,7 +4,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Composer } from "./components/Composer";
-import { Calendar } from "./components/Calendar";
 import { Projects } from "./components/Projects";
 import { Memory } from "./components/Memory";
 import { MessageList } from "./components/MessageList";
@@ -339,8 +338,6 @@ export default function App() {
                 await projects.refresh();
               }}
             />
-          ) : view === "calendar" ? (
-            <Calendar api={api} onSessionsChanged={onSessionsChanged} />
           ) : view === "memory" ? (
             <Memory api={api} />
           ) : view === "skills" ? (

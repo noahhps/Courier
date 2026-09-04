@@ -1,0 +1,246 @@
+/* QuickView's own stylesheet.
+ *
+ * Deliberately not `styles.css`. That file is 3,000 lines describing a windowed
+ * app with a rail, a sheet and six screens, and none of it applies to a 640px
+ * panel with no chrome. The tokens it needs are repeated here rather than
+ * imported, which is the cheaper of the two mistakes: a small duplication
+ * against loading a stylesheet that is fifty times the size of the page.
+ *
+ * The glass is two layers. The blur of the *desktop* behind the window is a
+ * native material applied in Rust (`window-vibrancy`); CSS cannot reach outside
+ * its own document. What is here is the tint, the edge and the inner highlight
+ * that sit on top of that material -- which is what makes it read as a pane of
+ * glass rather than as a grey rectangle.
+ */
+
+:root {
+  --qv-ink: #f4f6fa;
+  --qv-dim: rgba(244, 246, 250, 0.62);
+  --qv-faint: rgba(244, 246, 250, 0.4);
+  --qv-glass: rgba(120, 128, 145, 0.28);
+  --qv-glass-strong: rgba(140, 148, 165, 0.34);
+  --qv-edge: rgba(255, 255, 255, 0.18);
+  --qv-accent: #4d7dfa;
+  --qv-radius: 18px;
+  --qv-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Transparent all the way down. Any opaque background here would paint over
+   the native material and the window would look like a solid grey box. */
+html,
+body.qv-body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  color: var(--qv-ink);
+  font-family: var(--qv-mono);
+}
+
+#quickview {
+  height: 100%;
+  display: flex;
+  /* The panel sits at the bottom of the window and grows upward, so the
+     composer stays where the eye already is between one question and the next
+     rather than sliding down the screen as the conversation gets longer. */
+  align-items: flex-end;
+  padding: 14px;
+  box-sizing: border-box;
+}
+
+.qv {
+  width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: var(--qv-radius);
+  overflow: hidden;
+}
+
+/* Before anything is said the panel is a composer and nothing else -- no
+   header, no empty transcript, no frame around a void. */
+.qv:not([data-started]) .qv-composer {
+  border-radius: var(--qv-radius);
+}
+
+.qv[data-started] {
+  background: var(--qv-glass);
+  border: 1px solid var(--qv-edge);
+  box-shadow:
+    0 24px 60px -20px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.qv-head {
+  flex: none;
+  padding: 13px 18px;
+  background: transparent;
+  border-bottom: none;
+  /* The whole bar drags the window: a chromeless panel has no titlebar, and
+     something has to be grabbable or it can never be moved off what it covers. */
+  cursor: default;
+}
+
+.qv-title {
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  color: var(--qv-ink);
+}
+
+.qv-thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+/* No bubbles. Alignment carries who is speaking, which is enough at this size
+   and keeps a small panel from filling up with borders. */
+.qv-turn {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.qv-turn[data-role="user"] {
+  align-self: flex-end;
+  max-width: 78%;
+  text-align: right;
+  color: var(--qv-dim);
+}
+.qv-turn[data-role="assistant"] {
+  align-self: stretch;
+  color: var(--qv-ink);
+}
+
+.qv-error {
+  font-size: 11.5px;
+  color: #ffd9a8;
+}
+
+.qv-composer {
+  flex: none;
+  margin: 0;
+  padding: 13px 14px 11px;
+  background: var(--qv-glass-strong);
+  border: 1px solid var(--qv-edge);
+  box-shadow:
+    0 20px 50px -22px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.qv[data-started] .qv-composer {
+  border: none;
+  border-top: 1px solid var(--qv-edge);
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.qv-composer textarea {
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--qv-ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  max-height: 160px;
+  box-sizing: border-box;
+}
+.qv-composer textarea::placeholder {
+  color: var(--qv-faint);
+}
+
+.qv-composer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.qv-spacer {
+  flex: 1;
+}
+
+.qv-round {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--qv-edge);
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--qv-ink);
+  cursor: pointer;
+  transition: background 140ms ease, opacity 140ms ease;
+}
+.qv-round:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.22);
+}
+.qv-round:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.qv-round svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.qv-send {
+  background: var(--qv-accent);
+  border-color: transparent;
+  color: #fff;
+}
+.qv-send:hover:not(:disabled) {
+  background: #5d89ff;
+}
+
+/* Make send button arrow and attachment icon more visible */
+.qv-send svg {
+  stroke: var(--qv-ink);
+  stroke-width: 2;
+}
+
+.qv-attach svg {
+  stroke: var(--qv-ink);
+  stroke-width: 2;
+}
+
+/* The panel is drawn for the dark, frosted material it floats on. On a light
+   desktop the system material lightens underneath it, so the text has to come
+   back the other way or it disappears into its own background. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --qv-ink: #0e1420;
+    --qv-dim: rgba(14, 20, 32, 0.62);
+    --qv-faint: rgba(14, 20, 32, 0.42);
+    --qv-glass: rgba(255, 255, 255, 0.42);
+    --qv-glass-strong: rgba(255, 255, 255, 0.55);
+    --qv-edge: rgba(20, 23, 29, 0.1);
+  }
+  .qv-round {
+    background: rgba(20, 23, 29, 0.06);
+  }
+  .qv-round:hover:not(:disabled) {
+    background: rgba(20, 23, 29, 0.12);
+  }
+  .qv-error {
+    color: #8a5a12;
+  }
+}

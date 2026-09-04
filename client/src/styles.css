@@ -705,23 +705,31 @@ svg {
   color: var(--ink);
 }
 
-/* Destination icons. The closed rail is these and nothing else, so they are
-   present at every width -- they used to be held at zero width until the rail
+/* Destination icons, of either kind.
+ *
+ * Five of them are file-backed masks and one -- Settings -- is an inline
+ * stroked path, and this used to match `.icon-mask` alone. The inline glyph
+ * therefore got none of this: no margin, so its label sat flush against it
+ * while every other row had 10px of air. Whether a glyph is a file or a path
+ * is a detail of how it is drawn, not of how it sits in a row.
+ *
+ * The closed rail is these and nothing else, so they are present at every
+ * width -- they used to be held at zero width until the rail
    opened, back when the sideways labels were what a shut rail showed.
 
    One size in both states. Only the margin animates: shut there is nothing to
    sit beside, open there is a name to make room for. Animating the width as
    well would have the glyph breathe on every hover for no reason. */
-.navrail-dest button > .icon-mask,
-.navrail-group > button > .icon-mask {
+.navrail-dest button > :is(.icon-mask, svg),
+.navrail-group > button > :is(.icon-mask, svg) {
   width: 18px;
   height: 18px;
   opacity: 1;
   margin-right: 0;
   transition: margin-right var(--rail-motion);
 }
-.navrail[data-open] .navrail-dest button > .icon-mask,
-.navrail[data-open] .navrail-group > button > .icon-mask {
+.navrail[data-open] .navrail-dest button > :is(.icon-mask, svg),
+.navrail[data-open] .navrail-group > button > :is(.icon-mask, svg) {
   margin-right: 10px;
 }
 
@@ -994,7 +1002,9 @@ svg {
 .navrail-sessions ul {
   list-style: none;
   margin: 0;
-  padding: 2px 0;
+  /* A touch more above than below: the new border sits on this edge, and a
+     row hard against a line reads as squeezed against it. */
+  padding: 6px 0 2px;
   /* No well. The reference groups its task list under a heading and lets the
      panel show through; a recessed tray around it made the conversations look
      like a widget embedded in the sidebar rather than part of it. */
@@ -1005,12 +1015,19 @@ svg {
   max-height: 34vh;
   overflow-y: auto;
   overscroll-behavior: contain;
-  /* Inner shadows top and bottom, so a list longer than its box says so: the
-     conversations run under the edge rather than stopping at it. Inset on the
-     scroller itself, which keeps them pinned while the rows move beneath. */
-  box-shadow:
-    inset 0 6px 7px -7px rgba(20, 23, 29, 0.34),
-    inset 0 -6px 7px -7px rgba(20, 23, 29, 0.34);
+  /* A line above, a fade below -- and they are not the same thing badly
+     matched.
+   *
+   * The top edge is structural: it is where the list begins, under the header
+   * and the New conversation button, and that boundary is there whether or not
+   * anything is scrolled. A shadow made it look like the list was sliding
+   * under the button above it even when it fitted comfortably.
+   *
+   * The bottom is a state: it means there are more conversations below. A line
+   * there would claim an edge that is not one, and would still be claiming it
+   * once you had scrolled to the end. */
+  border-top: 1px solid var(--line-soft);
+  box-shadow: inset 0 -6px 7px -7px rgba(20, 23, 29, 0.34);
 }
 .navrail-sessions li {
   display: flex;
@@ -1214,17 +1231,18 @@ svg {
   flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
-  /* The bottom reserve is the *withdrawn* composer, not the whole one.
+  /* The bottom reserve is however much of the composer is on screen right now.
    *
    * On a thread the composer floats over the sheet (see the rule below), so
    * the thread runs the full height and only has to keep clear of what is
-   * actually on screen. Reserving the whole box instead left a band of nothing
-   * between the last turn and a composer that had slid most of the way off the
-   * bottom edge -- which is the space this gives back.
+   * actually there. Withdrawn, that is a sliver, and reserving the whole box
+   * would leave a band of nothing above a composer that had slid most of the
+   * way off the bottom edge.
    *
-   * Raised, the composer covers the last few lines. That is the trade a
-   * floating composer makes everywhere: the thread scrolls under it while you
-   * are typing, and gets the room back the moment you stop. */
+   * Raised, it is the whole box -- `--composer-peek` follows `--near`, and the
+   * composer scrolls the thread by the difference, so the last turn rides up
+   * with the box instead of disappearing behind it. It used to sit over the
+   * end of every answer while you typed. */
   padding: 28px 34px calc(var(--composer-peek) + 12px);
   display: flex;
   flex-direction: column;
@@ -1873,131 +1891,6 @@ svg {
   accent-color: var(--accent);
 }
 .budget output { font-variant-numeric: tabular-nums; min-width: 2.4em; }
-
-/* -- calendar -------------------------------------------------------------- */
-
-.cal { display: flex; flex-direction: column; gap: 4px; }
-
-.cal-head,
-.cal-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
-}
-.cal-head span { padding: 0 0 2px 4px; }
-
-.cal-day {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 3px;
-  /* Fixed, not aspect-ratio: six rows of a square cell is taller than most
-     windows, and the grid has to fit beside the day list below it. */
-  min-height: 82px;
-  padding: 6px 6px 5px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--r-surface);
-  background: var(--surface);
-  text-align: left;
-  overflow: hidden;
-}
-.cal-day:hover { border-color: var(--line-firm); }
-/* Days either side of the month stay legible but recede -- they are context,
-   not targets, though they are still clickable. */
-.cal-day[data-outside] { background: none; color: var(--text-faint); }
-.cal-day[data-today] .cal-date { color: var(--accent); font-weight: 700; }
-.cal-day[data-picked] { border-color: var(--accent); }
-
-.cal-date { font: 500 var(--t-sm)/1 var(--font); }
-
-.cal-chip {
-  font: 400 var(--t-xs)/1.35 var(--font);
-  background: var(--violet-field);
-  color: var(--ink);
-  border-radius: 2px;
-  padding: 1px 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.cal-more { padding-left: 2px; }
-
-.cal-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
-.cal-list li {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--r-surface);
-  background: var(--surface);
-}
-.cal-when { flex: none; min-width: 4.4em; font-variant-numeric: tabular-nums; }
-.cal-title { font: 400 var(--t-md)/1.4 var(--font); }
-.cal-notes { flex: 1; color: var(--text-faint); font-size: var(--t-sm); }
-.cal-del { margin-left: auto; color: var(--text-faint); padding: 0 4px; }
-.cal-del:hover { color: var(--alarm, var(--accent)); }
-
-.cal-add { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
-.cal-add input[type="text"] { flex: 1; }
-.cal-add input {
-  padding: 9px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-surface);
-  background: var(--surface);
-  font: 400 var(--t-md)/1.3 var(--font);
-  color: var(--ink);
-  outline: none;
-}
-.cal-add input:focus { border-color: var(--accent); }
-
-/* -- the calendar's own conversation --------------------------------------- */
-
-.sidechat { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-
-.sidechat-thread {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 180px;
-  max-height: 46vh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 11px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-surface);
-  background: var(--surface);
-}
-.sidechat-empty { margin: 0; color: var(--text-faint); font-size: var(--t-sm); }
-
-.sidechat-turn {
-  font: 400 var(--t-sm)/1.55 var(--font);
-  color: var(--ink);
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-}
-.sidechat-turn[data-role="user"] {
-  align-self: flex-end;
-  max-width: 85%;
-  background: var(--rail);
-  border-radius: var(--r-bubble);
-  padding: 7px 10px;
-}
-.sidechat-turn[data-role="error"] { color: var(--ochre); }
-
-.sidechat-form { display: flex; gap: 8px; align-items: center; }
-.sidechat-form input {
-  flex: 1;
-  min-width: 0;
-  padding: 9px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-pill);
-  background: var(--surface);
-  font: 400 var(--t-md)/1.3 var(--font);
-  color: var(--ink);
-  outline: none;
-}
-.sidechat-form input:focus { border-color: var(--accent); }
 
 /* -- bulk conversation management, on Settings ----------------------------- */
 
@@ -3054,8 +2947,40 @@ svg {
   transition: background-color var(--accent-motion);
 }
 
+.screen::before,
+.navrail-inner::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--aura-opacity);
+  transition:
+    opacity var(--accent-motion),
+    --aura-1 var(--accent-motion),
+    --aura-2 var(--accent-motion),
+    --aura-3 var(--accent-motion);
+}
 
+.screen::before {
+  /* Overhanging every edge, so the falloff happens off-screen. */
+  inset: -30% -20% -35%;
+  background:
+    radial-gradient(72% 58% at 18% 104%, var(--aura-2), transparent 78%),
+    radial-gradient(66% 52% at 92% 82%, var(--aura-1), transparent 76%),
+    radial-gradient(88% 62% at 46% -12%, var(--aura-3), transparent 80%);
+}
 
+/* The rail gets the same field, turned down and turned around: it is a strip
+   rather than a sheet, so a gradient drawn for the sheet's proportions would
+   show in it as a single flat colour. */
+.navrail-inner { isolation: isolate; }
+.navrail-inner::before {
+  inset: -10% -40%;
+  opacity: calc(var(--aura-opacity) * 0.7);
+  background:
+    radial-gradient(60% 30% at 50% 108%, var(--aura-2), transparent 74%),
+    radial-gradient(70% 26% at 50% -6%, var(--aura-3), transparent 76%);
+}
 
 /* Motion is what makes a recolour readable rather than startling, so it is
    also the first thing to go when motion is not wanted. The colours still

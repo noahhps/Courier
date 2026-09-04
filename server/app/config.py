@@ -34,6 +34,28 @@ def _env_float(name: str, default: float) -> float:
     return float(raw)
 
 
+def _env_paths(name: str, default: list[Path]) -> tuple[Path, ...]:
+    """A `os.pathsep`-separated list of directories, expanded and de-duplicated.
+
+    Missing directories are dropped rather than raising: a machine without a
+    ~/Pictures is not misconfigured, and a skill that refuses to start because
+    one of four defaults is absent would be its own bug report.
+    """
+    raw = os.environ.get(name)
+    candidates = (
+        [Path(p) for p in raw.split(os.pathsep) if p.strip()] if raw and raw.strip() else default
+    )
+    seen: dict[Path, None] = {}
+    for path in candidates:
+        try:
+            resolved = path.expanduser().resolve()
+        except OSError:
+            continue
+        if resolved.is_dir():
+            seen[resolved] = None
+    return tuple(seen)
+
+
 def _env_thinking_level(name: str, default: ThinkingLevel) -> ThinkingLevel:
     """Read the reasoning effort understood by gpt-oss via Ollama."""
     value = _env(name, default).lower()
@@ -68,20 +90,11 @@ class Settings:
 
     # --- inference -------------------------------------------------------
     ollama_url: str = field(default_factory=lambda: _env("OLLAMA_URL", "http://127.0.0.1:11434"))
-    ollama_model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", "qwen3.6:35b-a3b"))
+    ollama_model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", "gpt-oss"))
     # gpt-oss uses a three-level reasoning effort, not a boolean. This is the
     # fallback when an API caller does not choose a level of its own.
     ollama_think: ThinkingLevel = field(
         default_factory=lambda: _env_thinking_level("OLLAMA_THINK", "medium")
-    )
-
-    # Documents the assistant writes. Beside the database rather than inside
-    # it: these are artifacts a conversation produced, not data the user gave
-    # it, and they are regenerable.
-    documents_dir: Path = field(
-        default_factory=lambda: Path(
-            _env("DOCUMENTS_DIR", str(REPO_ROOT / "data" / "documents"))
-        )
     )
 
     # --- memory ----------------------------------------------------------
@@ -138,6 +151,31 @@ class Settings:
         )
     )
     search_endpoint: str = field(default_factory=lambda: _env("SEARCH_ENDPOINT", ""))
+
+    # --- the device ------------------------------------------------------
+    # Which directories the file skills may look inside, as a list separated by
+    # the platform's path separator. Everything outside them is invisible: the
+    # skills resolve a path and then check it is under one of these, so a
+    # symlink or a `..` cannot walk out.
+    #
+    # Named roots rather than "the home directory" on purpose. The home
+    # directory contains ~/.ssh, ~/.aws, browser profiles and every token this
+    # machine has ever been given, and a model that can read one file there can
+    # read all of them. These four are where a person's own documents live.
+    #
+    # On macOS, Desktop/Documents/Downloads are themselves gated by the system
+    # ("Files and Folders"), so the first read prompts and the reader decides
+    # again at that level. That is a feature, not an obstacle.
+    device_roots: tuple[Path, ...] = field(
+        default_factory=lambda: _env_paths(
+            "DEVICE_ROOTS",
+            [Path.home() / name for name in ("Desktop", "Documents", "Downloads", "Pictures")],
+        )
+    )
+    # A cap on what one read can put into the window. A file is not a document
+    # the reader chose to attach -- the model picked it -- so it is trimmed
+    # harder, and the skill says how much it left behind.
+    device_read_chars: int = field(default_factory=lambda: _env_int("DEVICE_READ_CHARS", 12_000))
 
     # Rough working-context budget in tokens. The window builder trims to fit;
     # real compaction (summarise the middle, keep head and tail) is phase 5.

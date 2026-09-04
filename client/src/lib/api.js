@@ -149,11 +149,6 @@ export function createApi(token, onUnauthorized = () => {}) {
     mcpSettings: () => json("/mcp/settings"),
     setMcpSettings: (patch) =>
       json("/mcp/settings", { method: "PATCH", body: JSON.stringify(patch) }),
-    listEvents: (since, until) =>
-      json(`/events?since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`),
-    createEvent: (event) =>
-      json("/events", { method: "POST", body: JSON.stringify(event) }),
-    deleteEvent: (id) => request("/events/" + encodeURIComponent(id), { method: "DELETE" }),
     setSkillKey: (name, key) =>
       json("/skills/" + encodeURIComponent(name) + "/key", {
         method: "PUT",

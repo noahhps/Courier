@@ -18,6 +18,19 @@ const PATHS = {
   // than filled, so it sits at the same visual weight as the arrow it
   // replaces -- a solid block in the same circle reads as much heavier.
   stop: "M8 8h8v8H8z",
+  // Sliders rather than a cog. A cog is the convention, but its teeth are a
+  // dozen tiny strokes that turn to mush at the 18px these are drawn at --
+  // and this set is hairlines and round caps, which a gear fights. Two rails
+  // with a knob each says "the things you can set" at any size.
+  //
+  // The knobs are circles written as two half-arcs, which is how a closed
+  // circle is expressed inside a single `d`. They sit on the rails rather
+  // than breaking them: the stroke passes behind, which is what a real slider
+  // looks like.
+  settings:
+    "M4 8h16M4 16h16" +
+    "M10.5 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 1 0 0-4.8" +
+    "M15 13.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 1 0 0-4.8",
   check: "M5 12.5l5 5 9-11",
   // A drawing pin, seen side on: head, shaft, point. `pinned` is the same
   // object driven home -- shorter shaft, so the state reads at 15px.

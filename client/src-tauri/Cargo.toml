@@ -18,10 +18,20 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # tray-icon is the whole reason this is a desktop app rather than a bookmark.
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 # Spawns and supervises the Python server as a sidecar. Also what a future
 # "open the data folder" menu item would use.
 tauri-plugin-shell = "2"
+# QuickView's hotkey. A shortcut that works while another app is focused is the
+# one thing a webview can never do for itself, and the whole point of the panel.
+tauri-plugin-global-shortcut = "2"
+# Remembers where QuickView was left. A panel you can move is only worth having
+# if it stays moved -- otherwise every summon undoes the last decision about it.
+tauri-plugin-window-state = "2"
+# The frosted ground behind QuickView. CSS `backdrop-filter` blurs what is
+# behind an element *within the page*; blurring the desktop behind the window
+# is a native material and has to be applied to the window itself.
+window-vibrancy = "0.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

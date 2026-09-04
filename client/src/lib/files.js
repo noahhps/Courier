@@ -52,25 +52,3 @@ export function formatSize(bytes) {
 
 export const isImage = (attachment) =>
   attachment.kind === "image" || (attachment.mime || "").startsWith("image/");
-
-/**
- * Save an authenticated URL to disk.
- *
- * The API needs a bearer header, and a browser sends none when it follows a
- * link -- so a plain <a> to /api/documents/... answers 401 no matter how
- * correct the path is. Fetching it through the api client and handing the
- * browser a blob is the same trick `Attachments.jsx` uses to show an image.
- */
-export async function saveDocument(api, pathname, filename) {
-  const blob = await api.request(pathname.replace(/^\/api/, "")).then((r) => r.blob());
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename || "document";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  // Revoked on the next tick: revoking synchronously can beat the download in
-  // some browsers and produce an empty file.
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}

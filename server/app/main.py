@@ -23,8 +23,12 @@ from .memory.indexer import Indexer
 from .orchestrator import Orchestrator
 from .providers import ProviderRouter
 from .skills.calendar import AddEvent, FindEvents, ListEvents, UpdateEvent
+from .device.mac_calendar import available as device_calendar_available
+from .device.mac_photos import available as device_photos_available
+from .skills.device_calendar import AddDeviceEvent, FindDeviceEvents, ListDeviceEvents
+from .skills.device_photos import AddToAlbum, CreateAlbum, ListAlbums, ListPhotos
+from .skills.files import ListDirectory, ReadFile, SearchFiles
 from .skills.clock import Clock
-from .skills.document import DocumentWriter
 from .skills.recall import Recall
 from .skills.registry import Registry
 from .skills.remember import Forget, Remember
@@ -67,11 +71,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     curator = Curator(settings, store, providers)
     registry = Registry()
     registry.register(Clock())
-    registry.register(AddEvent(store))
-    registry.register(UpdateEvent(store))
-    registry.register(ListEvents(store))
-    registry.register(FindEvents(store))
-    registry.register(DocumentWriter(settings.documents_dir))
+    # The device's own files. Read-only, and only inside settings.device_roots
+    # -- `Registry.enabled` hides them entirely when no root is configured, so
+    # an unshared machine never offers the model a folder it cannot open.
+    registry.register(ListDirectory(settings))
+    registry.register(ReadFile(settings))
+    registry.register(SearchFiles(settings))
+    # The calendar, from whichever source this machine actually has.
+    #
+    # One or the other, never both: they answer to the same three names, and a
+    # model offered two `add_event`s would be choosing between a private table
+    # and the user's real calendar without being told which is which. Where
+    # EventKit exists the real calendar wins, because a calendar only Courier
+    # can see is one it will be confidently wrong about.
+    #
+    # The private table stays as the fallback for Windows and Linux, and its
+    # rows are migrated by `tools/migrate_calendar.py` before it goes.
+    if device_calendar_available():
+        registry.register(ListDeviceEvents())
+        registry.register(FindDeviceEvents())
+        registry.register(AddDeviceEvent())
+    else:
+        registry.register(AddEvent(store))
+        registry.register(UpdateEvent(store))
+        registry.register(ListEvents(store))
+        registry.register(FindEvents(store))
+
+    # The photo library. No private fallback exists or should: there is no
+    # useful sense in which Courier could keep its own photos.
+    if device_photos_available():
+        registry.register(ListPhotos())
+        registry.register(ListAlbums())
+        registry.register(CreateAlbum())
+        registry.register(AddToAlbum())
     # Registered unconditionally, unlike web search: these need no key, and an
     # empty history is a valid answer rather than a broken tool.
     registry.register(Recall(indexer))
@@ -83,6 +115,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # reaching for something that was never there.
     web_search = WebSearch(settings.search_api_key, endpoint=settings.search_endpoint)
     registry.register(web_search)
+    
+    # Register skill creator to help with skill management
 
     # Database-backed MCP manager: dynamically loads tools from mcp_servers table
     mcp_manager = MCPManager(store, registry)

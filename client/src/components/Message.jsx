@@ -1,7 +1,5 @@
-import { memo, useCallback, useMemo } from "react";
+import { memo, useMemo } from "react";
 
-import { useApi } from "../lib/api-context";
-import { saveDocument } from "../lib/files";
 import { renderMarkdown } from "../lib/markdown";
 import { MessageAttachments } from "./Attachments";
 import { Reasoning } from "./Reasoning";
@@ -33,37 +31,6 @@ export const Message = memo(function Message({
   skills,
   model,
 }) {
-  const api = useApi();
-
-  // A link the assistant wrote to something this server holds. The endpoint is
-  // authenticated and a browser sends no bearer header when it follows a link,
-  // so left alone every one of these answers 401. Intercepted here and fetched
-  // through the api client instead, which is the same thing Attachments.jsx
-  // does to put an image on screen.
-  const onBodyClick = useCallback(
-    (event) => {
-      const link = event.target.closest?.("a");
-      if (!link || !api) return;
-      let url;
-      try {
-        url = new URL(link.getAttribute("href"), window.location.origin);
-      } catch {
-        return; // not a URL we can reason about; let the browser have it
-      }
-      if (url.origin !== window.location.origin) return;
-      if (!url.pathname.startsWith("/api/documents/")) return;
-
-      event.preventDefault();
-      const name = decodeURIComponent(url.pathname.split("/").pop() || "");
-      saveDocument(api, url.pathname, name).catch(() => {
-        // The server said no, or it is gone. Falling back to a normal
-        // navigation at least shows the real status rather than nothing.
-        window.open(url.href, "_blank", "noopener");
-      });
-    },
-    [api],
-  );
-
   // renderMarkdown escapes the source before emitting a single tag, so no
   // model output reaches the DOM as markup. That is the whole contract; see
   // lib/markdown.js.
@@ -109,7 +76,7 @@ export const Message = memo(function Message({
         <SkillTrace skills={skills} />
 
         {html ? (
-          <div className="body" onClick={onBodyClick} dangerouslySetInnerHTML={html} />
+          <div className="body" dangerouslySetInnerHTML={html} />
         ) : streaming ? (
           // The gap between the turn starting and its first token. Without
           // something here the answer column is simply blank.

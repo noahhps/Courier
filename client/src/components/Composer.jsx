@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 
 import { StagedAttachments } from "./Attachments";
 import { Icon } from "./Icon";
+import { STICK_PX } from "./MessageList";
 
 
 /**
@@ -137,6 +138,56 @@ export function Composer({
   // placeholder clipped in half. It then stayed that way, because this only
   // re-runs when the text or the attachments change: nobody types into a
   // composer they cannot see, so nothing ever asked it to grow back.
+  /* How much room the thread keeps clear at its foot, and the scroll that makes
+   * the conversation ride up with the box rather than vanish behind it.
+   *
+   * The reserve is not a constant and it is not the whole composer either. It
+   * is however much of the box is *on screen*, which depends on how far the box
+   * has withdrawn -- so `near` belongs in this sum. Withdrawn (0) the thread
+   * clears only the sliver still showing; raised (1) it clears the whole thing.
+   * Computing it from the tucked height alone, as this did, is why a raised
+   * composer sat over the last few lines of every answer.
+   *
+   * Publishing the number is only half the job. Growing the space under the
+   * last turn does not move that turn: it adds emptiness below it while the box
+   * rises over the top. So when the reader is already at the end, the thread is
+   * scrolled to match, which is what turns "more padding" into "the text moves
+   * with the composer".
+   *
+   * Only when they are already at the end. Someone reading back through an
+   * answer should not be dragged forward because the cursor drifted near the
+   * box. */
+  const publishPeek = useCallback((near) => {
+    const node = form.current;
+    const box = node?.querySelector(".composer-box");
+    if (!node || !box) return;
+
+    // `--tuck` is read back out of the stylesheet rather than repeated here, so
+    // how far the box withdraws stays a single decision made in one place.
+    const tuck = parseFloat(getComputedStyle(box).getPropertyValue("--tuck")) / 100 || 0;
+    const hidden = tuck * box.offsetHeight * (1 - near);
+    const peek = Math.max(0, Math.round(node.offsetHeight - hidden));
+
+    const root = document.documentElement;
+    if (peek === parseFloat(root.style.getPropertyValue("--composer-peek"))) return;
+
+    // Measured before the write, because setting the property changes the very
+    // numbers this asks about.
+    const thread = document.querySelector(".messages");
+    const atEnd =
+      thread && thread.scrollHeight - thread.scrollTop - thread.clientHeight < STICK_PX;
+
+    root.style.setProperty("--composer-peek", peek + "px");
+    if (thread && atEnd) thread.scrollTop = thread.scrollHeight;
+  }, []);
+
+  const currentNear = useCallback(() => {
+    // The stylesheet's own default is 1 -- present, not tucked -- and that is
+    // what applies until the proximity effect has spoken.
+    const near = parseFloat(form.current?.style.getPropertyValue("--near"));
+    return Number.isFinite(near) ? near : 1;
+  }, []);
+
   const autosize = useCallback(() => {
     const node = input.current;
     if (!node) return;
@@ -146,26 +197,8 @@ export function Composer({
     // resize and replaces it.
     const ceiling = (window.innerHeight || 800) * 0.4 || 320;
     node.style.height = Math.min(node.scrollHeight, ceiling) + "px";
-
-    // How much of the composer is still on screen once it has withdrawn.
-    //
-    // On a thread the composer floats over the bottom of the sheet, so the
-    // thread has to keep clear of it -- but only of the part that is actually
-    // there. Reserving the whole box would leave a band of nothing between the
-    // last turn and a composer that has slid most of the way off the edge.
-    //
-    // `--tuck` is read back out of the stylesheet rather than repeated here,
-    // so how far it withdraws stays a single decision made in one place.
-    const box = form.current?.querySelector(".composer-box");
-    if (form.current && box) {
-      const tuck = parseFloat(getComputedStyle(box).getPropertyValue("--tuck")) / 100 || 0;
-      const peek = form.current.offsetHeight - tuck * box.offsetHeight;
-      document.documentElement.style.setProperty(
-        "--composer-peek",
-        Math.max(0, Math.round(peek)) + "px",
-      );
-    }
-  }, []);
+    publishPeek(currentNear());
+  }, [publishPeek, currentNear]);
 
   useLayoutEffect(autosize, [autosize, value, staged]);
 
@@ -185,19 +218,10 @@ export function Composer({
   // last turn ends up behind the input.
   useEffect(() => {
     const node = form.current;
-    const observer = new ResizeObserver(() => {
-      const box = node.querySelector(".composer-box");
-      if (!box) return;
-      const tuck = parseFloat(getComputedStyle(box).getPropertyValue("--tuck")) / 100 || 0;
-      const peek = node.offsetHeight - tuck * box.offsetHeight;
-      document.documentElement.style.setProperty(
-        "--composer-peek",
-        Math.max(0, Math.round(peek)) + "px",
-      );
-    });
+    const observer = new ResizeObserver(() => publishPeek(currentNear()));
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [publishPeek, currentNear]);
 
   // The composer withdraws until you reach for it.
   //
@@ -249,7 +273,13 @@ export function Composer({
     // the composer parked over the end of it.
     let reading = false;
 
-    const set = (near) => node.style.setProperty("--near", near.toFixed(3));
+    // Where the box sits, and how much room the thread leaves for it, are the
+    // same fact. Setting one without the other is what let them drift apart.
+    // `measure` already runs inside a frame, so this costs no extra scheduling.
+    const set = (near) => {
+      node.style.setProperty("--near", near.toFixed(3));
+      publishPeek(near);
+    };
 
     const measure = () => {
       frame = 0;
@@ -324,7 +354,7 @@ export function Composer({
       // next thing to mount should not inherit a half-hidden composer.
       node.style.removeProperty("--near");
     };
-  }, []);
+  }, [publishPeek]);
 
   // A starter was picked. `draft` is a fresh object every time, so choosing the
   // same one twice still fires -- comparing the string would swallow the second

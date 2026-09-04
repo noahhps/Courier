@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -18,5 +20,16 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    rollupOptions: {
+      // Two entries, not one app with a route. QuickView is a 640px panel that
+      // opens over another application and is dismissed in seconds; making it
+      // load the rail, the router, Memory and the Skills page first -- none of
+      // which it can show -- would be paying the whole app's startup cost on
+      // every keypress.
+      input: {
+        main: resolve(__dirname, "index.html"),
+        quickview: resolve(__dirname, "quickview.html"),
+      },
+    },
   },
 });

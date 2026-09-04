@@ -8,6 +8,7 @@
 //! Keeping it thin is what makes the Windows client cheap later: none of the
 //! product logic is in here to be ported.
 
+mod quickview;
 mod server;
 
 use tauri::{
@@ -32,11 +33,29 @@ fn present_main_window(app: &tauri::AppHandle) {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(ManagedServer::default())
         .setup(|app| {
+            let handle = app.handle();
+            quickview::setup(handle);
+            let bound = quickview::register(handle);
+
             let open = MenuItem::with_id(app, "open", "Open Courier", true, None::<&str>)?;
+            // Named with the key it answers to, so the tray is where you find
+            // out what the shortcut is. When registration failed there is no
+            // key to name, and the item says so rather than lying.
+            let quick = MenuItem::with_id(
+                app,
+                "quickview",
+                &match &bound {
+                    Some(spec) => format!("QuickView  ({spec})"),
+                    None => "QuickView  (no shortcut)".to_string(),
+                },
+                true,
+                None::<&str>,
+            )?;
             let quit = MenuItem::with_id(app, "quit", "Quit Courier", true, Some("Cmd+Q"))?;
-            let menu = Menu::with_items(app, &[&open, &quit])?;
+            let menu = Menu::with_items(app, &[&open, &quick, &quit])?;
 
             TrayIconBuilder::with_id("courier-tray")
                 // The app icon, for now. Next event and reachability replace
@@ -49,6 +68,7 @@ pub fn run() {
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => present_main_window(app),
+                    "quickview" => quickview::toggle(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })

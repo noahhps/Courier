@@ -31,10 +31,14 @@ const LIST_KEY = "unified-llm-rail-list-open";
 const DESTINATIONS = [
   { id: "chat", label: "Chat", icon: "chat_bubble" },
   { id: "projects", label: "Projects", icon: "folder" },
-  { id: "calendar", label: "Calendar", icon: "calendar" },
   { id: "memory", label: "Memory", icon: "memory" },
   { id: "skills", label: "Skills", icon: "skills" },
-  { id: "tools", label: "Tools", icon: "tools" },
+  // Named for the page it opens. It was "tools", but `view === "tools"` has
+  // never had a branch of its own -- it fell through to the Settings page,
+  // which is also where the mark at the head of the rail goes. The label was
+  // describing a screen that does not exist; the id now matches the one it
+  // actually lands on.
+  { id: "settings", label: "Settings", icon: "settings" },
 ];
 
 /* The destination's name.
@@ -62,9 +66,20 @@ function Label({ label }) {
  * every conversation would be the app's own colour repeated down the whole
  * list, which says nothing about any of them. */
 function accentOf(session, projects) {
-  if (session.theme) return swatchOf(session.theme, seedFromContext(session));
+  // Filed conversations only. The bead is how this list says which project a
+  // row belongs to, now that the folders it used to sit inside are gone -- so
+  // on a conversation that belongs to none it is a dot with nothing to report,
+  // and a column of them says less than a column without.
+  if (!session.project_id) return null;
+
   const project = projects?.find((p) => p.id === session.project_id);
-  if (!project?.theme) return null;
+  if (!project) return null;
+
+  // Its own accent still wins where it has one, so the colour in the list is
+  // the colour the conversation actually opens in -- the same order
+  // `useTheme` resolves in.
+  if (session.theme) return swatchOf(session.theme, seedFromContext(session));
+  if (!project.theme) return null;
   // A project has a name rather than a title and no messages, so an auto
   // accent seeds from what little it has.
   return swatchOf(
@@ -252,27 +267,25 @@ export function NavRail({
 
         <div className="navrail-dest">
           <div className="navrail-group">
+            {/* Chat is both the destination and the fold above its own list,
+                so one press does both: go there, and show what is there.
+                `aria-expanded` describes the list it controls; `aria-current`
+                describes where you are. */}
             <button
               type="button"
+              className="navrail-section"
               aria-current={view === "chat" ? "page" : undefined}
-                                
-                  
-                  className="navrail-section"
-                  aria-expanded={listOpen}
-                  aria-controls="navrail-session-list"
-                  onClick={() => {
-                    const next = !listOpen;
-                    setListOpen(next);
-                    localStorage.setItem(LIST_KEY, next ? "1" : "0");
-                    () => onView("chat");
-                  }}
-                
-
-              
+              aria-expanded={listOpen}
+              aria-controls="navrail-session-list"
+              onClick={() => {
+                const next = !listOpen;
+                setListOpen(next);
+                localStorage.setItem(LIST_KEY, next ? "1" : "0");
+                onView("chat");
+              }}
             >
               <Icon name={DESTINATIONS[0].icon} />
               <Label label={DESTINATIONS[0].label} />
-        
             </button>
 
             {/* Collapsed to nothing until the rail opens. Deliberately not

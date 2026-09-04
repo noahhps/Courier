@@ -6,7 +6,10 @@ import { StartersHead } from "./Starters";
 // Anything within this much of the bottom counts as "reading the end", so a
 // new token follows the reader down. Further up and they are looking at
 // something; the thread must not yank them away from it.
-const STICK_PX = 120;
+// How close to the end counts as "still reading the newest thing". Exported
+// because the composer needs the same threshold: it decides whether growing
+// the reserve under the thread should carry the view with it.
+export const STICK_PX = 120;
 
 export function MessageList({ messages, model, scrollToken }) {
   const ref = useRef(null);

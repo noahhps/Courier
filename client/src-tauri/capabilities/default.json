@@ -1,7 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the main window is allowed to ask the shell to do.",
-  "windows": ["main"],
-  "permissions": ["core:default", "shell:default"]
+  "description": "What the windows are allowed to ask the shell to do.",
+  "windows": ["main", "quickview"],
+  "permissions": [
+    "core:default",
+    "shell:default",
+    "core:event:default",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-size",
+    "core:window:allow-inner-size",
+    "core:window:allow-start-dragging"
+  ]
 }

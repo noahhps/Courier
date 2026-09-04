@@ -149,17 +149,6 @@ class BulkDelete(BaseModel):
     confirm: bool = False
 
 
-class EventIn(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
-    # Validated by shape here and by meaning in the skill: the client sends
-    # what its own date picker produced, so a bad string is a bug rather than
-    # a model guessing.
-    starts_at: str = Field(min_length=10, max_length=16)
-    ends_at: str | None = Field(default=None, max_length=16)
-    all_day: bool = False
-    notes: str | None = Field(default=None, max_length=2000)
-
-
 class RenameRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
@@ -471,33 +460,10 @@ def build_router(
         store.set_text_setting(APP_THEME_KEY, json.dumps(accent) if accent else None)
         return {"ok": True, "theme": accent}
 
-    # -- calendar ---------------------------------------------------------
-
-    @router.get("/events")
-    def list_events(since: str | None = None, until: str | None = None) -> dict:
-        return {
-            "events": [e.to_dict() for e in store.list_events(since=since, until=until)]
-        }
-
-    @router.post("/events")
-    def create_event(body: EventIn) -> dict:
-        if body.ends_at and body.ends_at <= body.starts_at:
-            raise HTTPException(400, "the end has to come after the start")
-        event = store.add_event(
-            body.title.strip(),
-            body.starts_at,
-            ends_at=body.ends_at,
-            all_day=body.all_day or "T" not in body.starts_at,
-            notes=(body.notes or "").strip() or None,
-        )
-        return event.to_dict()
-
-    @router.delete("/events/{event_id}")
-    def delete_event(event_id: str) -> dict:
-        if not store.get_event(event_id):
-            raise HTTPException(404, "no such event")
-        store.delete_event(event_id)
-        return {"ok": True}
+    # The calendar has no routes of its own any more. It is the user's real
+    # calendar now, reached through EventKit by the skills, and the screen that
+    # used to read a private table is gone with it -- a second calendar nobody
+    # else on the machine can see is the thing that was worth removing.
 
     # -- chat -------------------------------------------------------------
 
@@ -683,27 +649,6 @@ def build_router(
             registry.set_enabled(name, False)
         return {"name": name, "configured": bool(key), "available": skill.available}
 
-
-    # -- documents --------------------------------------------------------
-
-    @router.get("/documents/{name}")
-    def get_document(name: str) -> FileResponse:
-        """Serve something the assistant wrote.
-
-        The name is resolved and then checked to be inside the documents
-        directory. `Path.name` alone would be enough for the shapes FastAPI
-        lets through, but a containment check is the assertion that actually
-        expresses the rule, and it survives someone widening the route later.
-        """
-        directory = settings.documents_dir.resolve()
-        candidate = (directory / Path(name).name).resolve()
-        if candidate.parent != directory or not candidate.is_file():
-            raise HTTPException(404, "no such document")
-        return FileResponse(
-            candidate,
-            filename=candidate.name,
-            headers={"Cache-Control": "private, no-store"},
-        )
 
     # -- memory -----------------------------------------------------------
 

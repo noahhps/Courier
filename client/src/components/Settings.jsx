@@ -11,7 +11,6 @@ import { ManageChats } from "./ManageChats";
 import { useState } from "react";
 
 import { ThemePicker } from "./ThemePicker";
-import { autoSaveEnabled, setAutoSave } from "./SkillTrace";
 import { DEFAULT_ACCENT } from "../lib/theme";
 
 export function Settings({
@@ -26,7 +25,6 @@ export function Settings({
   onSessionsChanged,
   theme,
 }) {
-  const [autoSave, setAutoSaveState] = useState(autoSaveEnabled);
 
   const rows = [
     {
@@ -73,30 +71,6 @@ export function Settings({
 
           <div className="sur" style={{ padding: "18px" }}>
             <div className="toggles">
-              <div className="toggle-row">
-                <span>
-                  Save documents automatically
-                  <br />
-                  <span className="caveat">
-                    Straight to this browser's download folder when the
-                    assistant writes one.
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  className="switch"
-                  role="switch"
-                  aria-checked={autoSave}
-                  aria-pressed={autoSave}
-                  aria-label="Save documents automatically"
-                  onClick={() => {
-                    setAutoSave(!autoSave);
-                    setAutoSaveState(!autoSave);
-                  }}
-                >
-                  <i />
-                </button>
-              </div>
               <div className="toggle-row">
                 <span>Keep the sidebar open</span>
                 <button

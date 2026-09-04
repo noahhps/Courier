@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Merged into the bundle's Info.plist at build time by Tauri.
+
+  These strings are not documentation: macOS shows them verbatim in the consent
+  dialog, and a bundle that requests one of these without the matching key is
+  killed rather than refused. Each says what Courier does with the data and,
+  as importantly, what it does not -- the dialog is the only place most people
+  will ever read about it.
+-->
+<plist version="1.0">
+  <dict>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Courier reads your calendar to answer questions about your schedule, and adds events when you ask it to. Your calendar is read on this Mac and is never sent anywhere.</string>
+
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Courier reads and adds reminders when you ask it to. They stay on this Mac.</string>
+
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Courier looks at your photo library to find and organise pictures when you ask it to. Photos are read on this Mac and are never uploaded.</string>
+
+    <key>NSContactsUsageDescription</key>
+    <string>Courier reads your contacts so it can recognise the people you mention. Contacts stay on this Mac.</string>
+
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Courier reads files on your Desktop when you ask it about them.</string>
+
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Courier reads files in your Documents folder when you ask it about them.</string>
+
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Courier reads files in your Downloads folder when you ask it about them.</string>
+  </dict>
+</plist>
