@@ -98,6 +98,37 @@ export function createApi(token, onUnauthorized = () => {}) {
   return {
     request,
     status: () => json("/status"),
+
+    // -- providers and models -------------------------------------------
+    // One call for the whole picker: every backend, whether it is reachable,
+    // what it is pointed at, and everything it could be pointed at instead.
+    listModels: () => json("/models"),
+    // Server state, not a per-request preference. The phone and the laptop are
+    // looking at the same assistant, so a model chosen on one is chosen.
+    setProviderModel: (provider, model) =>
+      json("/providers/" + encodeURIComponent(provider) + "/model", {
+        method: "PUT",
+        body: JSON.stringify({ model }),
+      }),
+    // Empty disconnects. The server checks a non-empty key against OpenRouter
+    // before writing it down, so a rejected key comes back as a 400 here
+    // rather than as a failed message an hour later.
+    setOpenRouterKey: (key) =>
+      json("/providers/openrouter/key", {
+        method: "PUT",
+        body: JSON.stringify({ key }),
+      }),
+    // The sign-in. The server mints the URL; opening it is this side's job,
+    // because the server has no browser and is often not even on the device
+    // being used. `callback_base` is this origin -- how the browser reached
+    // the server -- which is the only address it can be sent back to.
+    startOpenRouterSignIn: (callbackBase) =>
+      json("/providers/openrouter/signin", {
+        method: "POST",
+        body: JSON.stringify({ callback_base: callbackBase }),
+      }),
+    openRouterSignInStatus: (state) =>
+      json("/providers/openrouter/signin/" + encodeURIComponent(state)),
     listSkills: () => json("/skills"),
     listTools: () => json("/tools"),
     listMcpServers: () => json("/mcp/servers"),
@@ -206,7 +237,8 @@ export function createApi(token, onUnauthorized = () => {}) {
         body: JSON.stringify({ ids, confirm: true }),
       }),
     // Resolves to the raw response -- the caller drives it with readEvents().
-    // `provider` is "local", "cloud", or null for whatever the router picks.
+    // `provider` is "local", "cloud", "openrouter", or null for whatever the
+    // router picks.
     // Never switch silently -- the server records which one answered and the
     // reply's meta frame says so.
     // `signal` is what makes a turn abortable. Aborting it drops the

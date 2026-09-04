@@ -28,7 +28,15 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  if (url.pathname.startsWith("/api") || event.request.method !== "GET") {
+  // `/openrouter/callback/...` is the OpenRouter sign-in landing on the way
+  // back. It is a one-shot page the server renders, its URL carries the
+  // single-use handle for that sign-in, and it is never requested twice --
+  // three reasons not to put it in a cache that outlives the tab.
+  if (
+    url.pathname.startsWith("/api") ||
+    url.pathname.startsWith("/openrouter/") ||
+    event.request.method !== "GET"
+  ) {
     return; // straight to the network, no caching, no interception
   }
 

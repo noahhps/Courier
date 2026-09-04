@@ -10,7 +10,8 @@ import { swatchOf } from "../lib/theme";
  *
  * Three destinations set vertically between two circles, and the circles are
  * controls rather than decoration: the one at the head opens this device's
- * settings, the one at the foot chooses which provider answers. Both stay put
+ * settings, the one at the foot chooses which provider answers and which of
+ * its models it answers with. Both stay put
  * and stay clickable when the rail is shut, which is most of the time -- they
  * are the two things you reach for without wanting to read a menu first.
  *
@@ -148,8 +149,11 @@ export function NavRail({
   view,
   onView,
   status,
+  providers,
   provider,
   onProvider,
+  onChooseModel,
+  onManageProviders,
   pinned,
   onTogglePin,
   resizable,
@@ -197,19 +201,26 @@ export function NavRail({
   }, []);
 
   const serving = status?.serving;
-  // Grey when local is answering, ochre when it fell through to the cloud,
-  // flat when nothing is reachable at all.
-  const tone = serving === "cloud" ? "warn" : serving === "none" ? "down" : undefined;
+  // Grey when local is answering, ochre when it fell through to a cloud
+  // backend, flat when nothing is reachable at all.
+  const tone =
+    serving === "none" ? "down" : serving && serving !== "local" ? "warn" : undefined;
+  // What the circle says, which is the model rather than the backend wherever
+  // one is known: "gpt-oss" and "anthropic/claude-sonnet-4.5" are the two
+  // things worth telling apart at a glance, and both of them are cloud or
+  // local as a second question.
+  const chosen = (providers || []).find((p) => p.id === (provider || serving));
   const label =
-    provider === "local"
+    chosen?.model ||
+    (provider === "local"
       ? status?.local?.model || "Local"
       : provider === "cloud"
         ? status?.cloud?.model || "Cloud"
-        : serving === "cloud"
-          ? "Cloud fallback"
+        : provider === "openrouter"
+          ? status?.openrouter?.model || "OpenRouter"
           : serving === "none"
             ? "No model"
-            : status?.local?.model || "Local model";
+            : status?.[serving]?.model || "Local model");
 
   return (
     <nav
@@ -416,8 +427,14 @@ export function NavRail({
       <ModelMenu
         open={menuOpen}
         status={status}
+        providers={providers}
         value={provider}
         onChange={onProvider}
+        onChooseModel={onChooseModel}
+        onManage={() => {
+          setMenuOpen(false);
+          onManageProviders?.();
+        }}
         onClose={() => setMenuOpen(false)}
       />
     </nav>

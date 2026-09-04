@@ -110,6 +110,16 @@ def control_for(provider: str, model: str) -> ThinkingControl:
     """
     if provider == "anthropic":
         return _BUDGET
+    # OpenRouter fronts every family at once, so a name table would have to
+    # know all four of the shapes above -- and it does not need to. Its
+    # `reasoning` field takes an effort word for anything and converts it
+    # upstream, into a budget for Claude and a switch for the models that
+    # only have one, so effort is the control that is true of every model
+    # there. Which models can reason at all is a per-model fact rather than a
+    # per-family one, and it travels with the catalogue instead: a row that
+    # says `reasoning: false` is drawn without this control.
+    if provider == "openrouter":
+        return _EFFORT
 
     name = _bare(model)
     for prefixes, control in _OLLAMA:

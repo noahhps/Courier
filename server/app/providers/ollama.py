@@ -127,6 +127,56 @@ class OllamaProvider:
         except httpx.HTTPError:
             return False
 
+    async def list_models(self) -> list[dict]:
+        """What this machine has pulled, in the picker's shape.
+
+        `/api/tags` is the same call `health()` makes, which is the reason the
+        model menu was never possible before this: the endpoint has always been
+        there and nothing was reading the body.
+
+        The tag is part of the name here -- `qwen3:14b` and `qwen3:32b` are
+        different models with different weights on this disk -- so unlike the
+        thinking table, which strips it, nothing is normalised away.
+        """
+        try:
+            response = await self._client.get("/api/tags", timeout=httpx.Timeout(5.0))
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"ollama unreachable: {exc}", retryable=True) from exc
+        if response.status_code >= 400:
+            raise _translate_error(response.status_code, response.text)
+
+        models = []
+        for entry in (response.json() or {}).get("models") or ():
+            name = str(entry.get("model") or entry.get("name") or "")
+            if not name:
+                continue
+            details = entry.get("details") or {}
+            capabilities = {str(c).lower() for c in entry.get("capabilities") or ()}
+            models.append(
+                {
+                    "id": name,
+                    "name": name,
+                    # What `ollama list` shows beside a model: its size on disk
+                    # and its quantisation, which is what someone choosing
+                    # between two tags of the same model is choosing between.
+                    "description": " ".join(
+                        part
+                        for part in (
+                            details.get("parameter_size") or "",
+                            details.get("quantization_level") or "",
+                        )
+                        if part
+                    ),
+                    "size": entry.get("size"),
+                    "context": None,
+                    "vision": "vision" in capabilities,
+                    "tools": "tools" in capabilities or not capabilities,
+                    "reasoning": "thinking" in capabilities or not capabilities,
+                    "free": True,
+                }
+            )
+        return sorted(models, key=lambda m: m["id"])
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
