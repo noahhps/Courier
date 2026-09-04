@@ -83,7 +83,9 @@ if OLLAMA_VERSION=$(curl -s -m 2 http://127.0.0.1:11434/api/version 2>/dev/null)
     warn "model '${WANT}' is not pulled -- ollama pull ${WANT}"
   fi
 else
-  warn "ollama is not answering on :11434 -- start it, or the first turn will fail"
+  # Only a warning, and deliberately: a cloud backend answers without it now,
+  # so an OpenRouter-only setup is a working setup rather than a broken one.
+  warn "ollama is not answering on :11434 -- start it, or answers come from the cloud backend if one is connected"
 fi
 
 # --- port --------------------------------------------------------------------

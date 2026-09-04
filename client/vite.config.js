@@ -15,6 +15,12 @@ export default defineConfig({
     proxy: {
       "/api": { target: API_ORIGIN, changeOrigin: true },
       "/healthz": { target: API_ORIGIN, changeOrigin: true },
+      // Where OpenRouter sends the browser back to after a sign-in. It is not
+      // under /api because the redirect carries no bearer token, and it has to
+      // be proxied here too: in development the address the browser knows this
+      // app by is Vite's, so that is the address the callback is registered
+      // with, and it has to reach the server that minted the flow.
+      "/openrouter": { target: API_ORIGIN, changeOrigin: true },
     },
   },
   build: {

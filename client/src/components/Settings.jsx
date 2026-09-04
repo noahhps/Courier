@@ -8,13 +8,13 @@
  * redesign that needs no `unbacked` banner.
  */
 import { ManageChats } from "./ManageChats";
-import { useState } from "react";
-
+import { Providers } from "./Providers";
 import { ThemePicker } from "./ThemePicker";
 import { DEFAULT_ACCENT } from "../lib/theme";
 
 export function Settings({
   status,
+  models,
   provider,
   onProvider,
   pinned,
@@ -25,24 +25,6 @@ export function Settings({
   onSessionsChanged,
   theme,
 }) {
-
-  const rows = [
-    {
-      id: "local",
-      name: "Local",
-      detail: status?.local?.model || "—",
-      note: status?.local?.url || "",
-      ok: status?.local?.healthy,
-    },
-    {
-      id: "cloud",
-      name: "Cloud fallback",
-      detail: status?.cloud?.model || "—",
-      note: status?.cloud?.healthy ? "reachable" : "no API key, or unreachable",
-      ok: status?.cloud?.healthy,
-    },
-  ];
-
   return (
     <div className="page">
       <div className="page-head" data-tint="blue">
@@ -146,55 +128,12 @@ export function Settings({
         </div>
 
         <div className="page-side">
-          <div className="lane">
-            <span className="mi" data-strong>
-              Connection
-            </span>
-            <i />
-            <span className="mi">
-              {status?.serving === "none" ? "nothing reachable" : `serving ${status?.serving}`}
-            </span>
-          </div>
-
-          {rows.map((row) => (
-            <div key={row.id} className="sur corpus">
-              <div className="corpus-top">
-                <i style={{ background: row.ok ? "var(--green)" : "rgba(20,23,29,.18)" }} />
-                <span>{row.name}</span>
-                <span className="mi">{row.detail}</span>
-              </div>
-              {row.note ? <p>{row.note}</p> : null}
-            </div>
-          ))}
-
-          <div className="lane" style={{ marginTop: "6px" }}>
-            <span className="mi" data-strong>
-              Answer with
-            </span>
-            <i />
-          </div>
-          <div className="filters">
-            {[
-              { id: null, label: "Auto" },
-              { id: "local", label: "Local" },
-              { id: "cloud", label: "Cloud" },
-            ].map((choice) => (
-              <button
-                key={choice.id || "auto"}
-                type="button"
-                className="chip"
-                data-on={provider === choice.id ? "" : undefined}
-                onClick={() => onProvider(choice.id)}
-              >
-                {choice.label}
-              </button>
-            ))}
-          </div>
-          <p className="caveat" style={{ margin: 0 }}>
-            Auto uses the local model and falls back to the cloud only when it
-            cannot be reached. Choosing between the models Ollama has pulled
-            needs a server endpoint that does not exist yet.
-          </p>
+          <Providers
+            models={models}
+            provider={provider}
+            onProvider={onProvider}
+            serving={status?.serving}
+          />
 
         </div>
       </div>

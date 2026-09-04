@@ -10,18 +10,18 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import build_router
 from .auth import make_auth_dependency
-from .config import Settings, load_settings
+from .config import Settings, load_settings, write_secret
 from .db import Database
 from .mcp import MCPManager
 from .memory.facts import Curator
 from .memory.indexer import Indexer
 from .orchestrator import Orchestrator
-from .providers import ProviderRouter
+from .providers import OAuthFlows, ProviderError, ProviderRouter, model_setting_key
 from .skills.calendar import AddEvent, FindEvents, ListEvents, UpdateEvent
 from .device.mac_calendar import available as device_calendar_available
 from .device.mac_photos import available as device_photos_available
@@ -59,11 +59,62 @@ class ShellStatic(StaticFiles):
         return response
 
 
+def _signin_page(heading: str, detail: str, *, ok: bool) -> HTMLResponse:
+    """The one page this server renders that is not the client.
+
+    Deliberately plain: it is on screen for a second or two, in a tab the
+    reader is about to close, and it has no stylesheet to fetch because a
+    browser that has never loaded this app before is a browser with nothing
+    cached. Both strings are escaped -- the detail can be text OpenRouter
+    wrote.
+    """
+    from html import escape
+
+    tint = "#2f7d4f" if ok else "#a2452f"
+    return HTMLResponse(
+        f"""<!doctype html><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{escape(heading)}</title>
+<body style="margin:0;display:grid;place-items:center;min-height:100vh;
+             background:#f6f5f3;color:#14171d;
+             font:400 15px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif">
+  <main style="max-width:30rem;padding:2rem;text-align:center">
+    <h1 style="font-size:1.15rem;margin:0 0 .5rem;color:{tint}">{escape(heading)}</h1>
+    <p style="margin:0;color:#5c6270">{escape(detail)}</p>
+  </main>
+  <script>
+    // Only closes a tab this app opened itself, which is the one this is.
+    // A tab the browser opened some other way simply stays put.
+    if (window.opener) setTimeout(() => window.close(), 1200);
+  </script>
+</body>""",
+        status_code=200 if ok else 400,
+    )
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     db = Database(settings.db_path)
     store = Store(db)
     providers = ProviderRouter(settings)
+    # A model chosen in the picker outlives the process it was chosen in. The
+    # environment still sets the starting point; this is what someone actually
+    # picked, so it wins over the default and loses to nothing.
+    #
+    # Applied without checking that the model still exists: Ollama may not have
+    # it pulled this boot and OpenRouter may have retired it, and either way
+    # the honest failure is the one that names the model at the moment it is
+    # used, not a silent reversion to something else on startup.
+    for provider_id in providers.by_id:
+        saved = store.get_text_setting(model_setting_key(provider_id))
+        if saved:
+            try:
+                providers.set_model(provider_id, saved)
+            except (KeyError, ValueError):
+                pass
+    # Sign-ins in flight. In memory and per-process, because a half-finished
+    # one is worth nothing after a restart -- see providers/openrouter_oauth.py.
+    oauth = OAuthFlows()
     # Built fresh each boot: skills are code that ships with the server, so
     # there is nothing to load and nothing to persist. Built *before* the
     # orchestrator, which needs it to tell the model what it can call.
@@ -230,15 +281,53 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.orchestrator = orchestrator
     app.state.indexer = indexer
     app.state.mcp_manager = mcp_manager
+    app.state.providers = providers
+    app.state.openrouter_oauth = oauth
 
     auth = make_auth_dependency(settings)
     app.include_router(
         build_router(
             store, orchestrator, providers, auth, registry,
-            settings, indexer, curator, mcp_manager,
+            settings, indexer, curator, mcp_manager, oauth,
         ),
         prefix="/api",
     )
+
+    @app.get("/openrouter/callback/{state}")
+    async def openrouter_callback(state: str, code: str = "", error: str = "") -> HTMLResponse:
+        """Where OpenRouter sends the browser back to, holding a code.
+
+        Unauthenticated, and it has to be: the redirect comes from
+        openrouter.ai and carries none of this app's headers. What stands in
+        for the token is `state` -- 256 bits, minted by an authenticated
+        request, single-use and expiring in fifteen minutes. Someone who cannot
+        guess it cannot spend a code here, and someone who can already had the
+        token.
+
+        The reply is a page, not JSON, because a person is looking at it. The
+        client is not told anything by this route; it learns the outcome by
+        polling the sign-in status, which is what it was already doing while
+        this tab was open.
+        """
+        if error:
+            return _signin_page("Sign-in cancelled", error, ok=False)
+        try:
+            key = await oauth.complete(state, code)
+        except ProviderError as exc:
+            return _signin_page("That didn't work", str(exc), ok=False)
+
+        providers.openrouter.set_api_key(key)
+        write_secret(settings.openrouter_key_path, key)
+        # Held only until it is written down. The flow record stays for the
+        # client's next poll; the key in it does not need to.
+        flow = oauth.get(state)
+        if flow is not None:
+            flow.key = ""
+        return _signin_page(
+            "OpenRouter connected",
+            "You can close this tab and go back to Courier.",
+            ok=True,
+        )
 
     @app.get("/healthz")
     def healthz() -> JSONResponse:

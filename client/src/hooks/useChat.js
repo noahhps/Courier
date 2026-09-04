@@ -183,8 +183,15 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
             active = data.session_id;
             setSessionId(active);
           } else if (event === "meta") {
+            // Named rather than labelled "cloud": there are two cloud backends
+            // now, and which one answered is what the badge is for. The model
+            // alone is enough when it was the local one -- that is the case
+            // with nothing to warn about.
             setBadge({
-              text: data.source === "fallback" ? "cloud · " + data.model : data.model,
+              text:
+                data.source === "fallback"
+                  ? data.provider + " · " + data.model
+                  : data.model,
               tone: data.source === "fallback" ? "warn" : null,
             });
           } else if (event === "thinking") {

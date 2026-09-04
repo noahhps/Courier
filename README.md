@@ -217,6 +217,65 @@ The colour arrives as tints on the surfaces, lines and accents; the large soft
 field behind the sheet — the part that looks like the reference — is a separate
 layer, `--aura-*`, painted behind the thread and never between it and a word.
 
+## Providers and models
+
+Three places an answer can come from, chosen from the circle at the foot of the
+rail or from **Settings → Connection**:
+
+| | | |
+|---|---|---|
+| **Local** | Ollama on this machine | The default, and on a good day the only one |
+| **Cloud** | Anthropic | Needs `ANTHROPIC_API_KEY` and the `cloud` extra |
+| **OpenRouter** | several hundred models behind one key | Connected from the app |
+
+**Auto** is the fourth choice and the one to leave it on: local first, and a
+cloud backend only when the local runner cannot be reached. Which one answered
+is never a guess — it is recorded on the message and shown in the top bar.
+
+The same menu picks the *model*, one level in: **›** beside a backend lists
+what it has — everything `ollama list` shows, every Claude model the API
+reports, the whole OpenRouter catalogue with prices and context lengths, with a
+filter, because that last one is several hundred long.
+
+That choice is server state, not a per-device preference. The phone and the
+laptop are looking at the same assistant, and the two passes that run off the
+response path — titling a conversation, curating memory — have no request of
+their own to carry a preference on. It survives a restart. *Which backend*
+answers is the opposite case and stays in the browser: it is a per-message
+field, and "answer this one locally" should not follow you to another device.
+
+### Connecting OpenRouter
+
+Two ways in, both ending at the same place — a key on this machine, in
+`data/openrouter_key`, beside the bearer token:
+
+**Sign in.** Settings → *Sign in with OpenRouter* opens openrouter.ai in a tab,
+and OpenRouter mints a key for this app when you approve it. The flow is OAuth
+PKCE, so nothing secret is baked into the app and the browser never carries
+anything worth intercepting. The tab lands back on the server, which stores the
+key and says so.
+
+**Paste a key.** Settings → *Paste a key*, from openrouter.ai/keys. It is
+checked against OpenRouter before it is written down, so a key that is wrong by
+one character is refused on the page you are looking at rather than on a
+message an hour later.
+
+*Disconnect* deletes the file. There is no session to expire and nothing to
+revoke from here — the key on disk is the whole of the connection, which is
+also why you should revoke it at openrouter.ai if the machine is lost.
+
+> **This is a bill.** Everything else in Courier runs on hardware you own.
+> OpenRouter charges per token, on a key you connected, and every message sent
+> to it costs money — the settings page shows what the key has spent so far.
+> Models flagged **free** in the picker cost nothing and are rate limited
+> accordingly.
+
+Reasoning works across all of it: OpenRouter takes the composer's effort word
+for any model and converts it upstream — into a token budget for Claude, into a
+switch for the models that only have one — so the control does not change shape
+when the model does. A model the catalogue says cannot reason is drawn without
+the control at all rather than with one that does nothing.
+
 ## Configuration
 
 All environment variables, all optional.
@@ -240,7 +299,11 @@ All environment variables, all optional.
 | `MEMORY_MAX_FACTS` | `40` | Curated facts allowed in the system prompt. |
 | `MEMORY_FACT_CHARS` | `200` | Longest a single fact may be. |
 | `MEMORY_EXTRACT_EVERY` | `5` | User turns between curation passes; `0` disables them. |
-| `ANTHROPIC_API_KEY` | unset | Enables cloud fallback. `pip install -e "./server[cloud]"`. |
+| `ANTHROPIC_API_KEY` | unset | Enables the Anthropic fallback. `pip install -e "./server[cloud]"`. |
+| `OPENROUTER_API_KEY` | unset | Enables OpenRouter. Usually set from the app instead — see below. |
+| `OPENROUTER_MODEL` | `openrouter/auto` | Starting point only; the picker's choice is stored in the database. |
+| `OPENROUTER_KEY_PATH` | `data/openrouter_key` | Where a key pasted or signed in from the app is kept. |
+| `OPENROUTER_URL` | `https://openrouter.ai/api/v1` | |
 
 ### gpt-oss reasoning effort and `OLLAMA_THINK`
 
@@ -281,6 +344,8 @@ server/app/
     base.py        ModelProvider protocol — the seam, in place from day one
     ollama.py      default
     anthropic.py   cloud fallback, lazily imported
+    openrouter.py  OpenAI-compatible; one encoder for every family it fronts
+    openrouter_oauth.py  the PKCE sign-in; in memory, per process
     router.py      local first, cached health, explicit override
   memory/
     chunking.py    paragraph-sized pieces; pure
@@ -317,7 +382,8 @@ the server only ever reads `dist/`.
 
 ## Not built yet
 
-Phase 6 (model picker and per-session override), and compaction of the middle
-of a long window — `build_window` still trims from the head.
+Per-session model override — the picker sets one model per backend for the
+whole app, and a conversation cannot yet keep its own. And compaction of the
+middle of a long window: `build_window` still trims from the head.
 
 Phases 4 and 5 are in: see **Memory** above and `docs/memory.md`.
