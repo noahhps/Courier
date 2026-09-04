@@ -541,9 +541,18 @@ body,
  * is zero when no accent is chosen -- a rail with no accent stays neutral, as
  * it should. */
 .navrail-inner::before {
-  /* Step two, not step one. Left at the theme's own strength so the rail is
-     plain glass first -- raise this multiplier to bring the accent in. */
-  opacity: calc(var(--aura-opacity) * 1) !important;
+  /* The rail's colour, and the only thing colouring it.
+   *
+   * This is the same radial field the sheet carries -- three soft gradients in
+   * `--aura-1/2/3`, which `theme.js` derives from the active accent -- so the
+   * rail is tinted by whatever theme is on, per chat, per project or app-wide,
+   * with nothing here naming a colour.
+   *
+   * Multiplied up because the glass beneath it is nearly clear now. At the
+   * theme's own strength the field was tuned to tint an opaque panel and read
+   * as a faint pool in one corner; the rail needs it carrying the whole
+   * surface. Raise for more colour, lower for more desktop. */
+  opacity: calc(var(--aura-opacity) * 2.6) !important;
 }
 .screen {
   /* Opaque overrides, scoped to the sheet so the rail is unaffected. Set as
