@@ -16,17 +16,22 @@
  * fonts.googleapis.com. Drop an inter-var.woff2 into public/fonts and add an
  * @font-face here to get the drawing exactly. */
 :root {
-  /* Two flush regions meeting at a hairline: a grey rail and a white sheet,
-     both running the full height of the window. No gutter, no radius, nothing
-     floating -- this reverses the tinted band and the rail's outline, because
-     the reference has neither and the two cannot both be true. */
-  --shell: #eef1f6;       /* ground: the page, and the rail */
-  --menu: #e9edf4;        /* the rail once it opens, per 1c's applied mock */
-  --menu-well: #e9edf4;   /* the conversation list */
-  --ground: #ffffff;      /* sheet: the drafting surface */
-  --rail: #f4f6fa;        /* inset panels, logs and code */
-  --surface: #ffffff;     /* a card on the sheet */
-  --ink: #0e1420;         /* graphite */
+  /* Liquid Glass Palette: surfaces are semi-translucent, highly blurred glass.
+     We replace solid flat fills with layered translucency and light-catching edges. */
+  --shell-base: linear-gradient(135deg, #e0f2fe 0%, #fef9c3 30%, #fae8d4 60%, #e0f2fe 100%);
+  
+  --glass-surface: rgba(255, 255, 255, 0.75);
+  --glass-highlight: rgba(255, 255, 255, 0.95); /* top/left edge light catch */
+  --glass-shadow: rgba(0, 0, 0, 0.12);          /* bottom/right floating depth */
+  
+  --menu-base: rgba(255, 255, 255, 0.85);
+  --menu-well-base: rgba(255, 255, 255, 0.65);
+  --ground-base: rgba(255, 255, 255, 0.9);
+  --rail-base: rgba(0, 0, 0, 0.04);
+  --surface-base: rgba(255, 255, 255, 0.7);
+  
+  --ink: #0f172a;
+  --ink-light: #ffffff;
 
   /* The drafting grid under the sheet. 1c rules its working surface at 22px
      and that ruling is the direction's whole argument -- take it away and it
