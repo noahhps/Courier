@@ -462,22 +462,26 @@ body,
 
 }
 
-/* Fullscreen: a plain white rail.
+/* Fullscreen: a white rail, still carrying its colour.
  *
  * Set from the shell, which is the only place that knows -- see the Resized
- * handler in lib.rs. Everything the glass is made of comes off together: the
- * gradient fill, the rim lights that imply a lit edge, and the radial accent
- * field. A highlight with nothing behind it to catch reads as a smudge, and
- * the accent still shows everywhere else in the sheet. */
+ * handler in lib.rs.
+ *
+ * What comes off is only what depends on there being a desktop behind the
+ * window: the translucent fill, the backdrop filter, and the rim lights that
+ * imply a lit edge. With nothing to sample, the material returns a flat cast
+ * and a highlight with nothing to catch reads as a smudge.
+ *
+ * The radial accent field stays. It is drawn by the page, not by the compositor
+ * -- three gradients from `--aura-1/2/3` sitting above the rail's background --
+ * so it has never needed anything behind the window and works exactly as well
+ * over white. It is the rail's colour in both states; only its ground changes. */
 html[data-fullscreen] .app[data-rail="pinned"] .navrail-inner {
   background: #ffffff !important;
   box-shadow: none !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
   border-right-color: rgb(20 23 29 / 0.08) !important;
-}
-html[data-fullscreen] .navrail-inner::before {
-  opacity: 0 !important;
 }
 
 /* Pinned, the rail owns a column of the window: `--rail-w` becomes
