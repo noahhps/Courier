@@ -152,6 +152,31 @@ class Settings:
     )
     search_endpoint: str = field(default_factory=lambda: _env("SEARCH_ENDPOINT", ""))
 
+    # --- openrouter ------------------------------------------------------
+    # The second thing that leaves the machine, and the first that answers
+    # with a model. Empty by default: unconfigured, it is listed in the picker
+    # as somewhere to sign in rather than offered as somewhere to route.
+    #
+    # A key can arrive three ways -- this variable, the Settings page, or the
+    # sign-in flow -- and the last two both end up in `openrouter_key_path`.
+    # The environment still wins at boot, for the reason the search key gives:
+    # someone who exported it meant it.
+    openrouter_api_key: str = field(default_factory=lambda: _env("OPENROUTER_API_KEY", ""))
+    openrouter_key_path: Path = field(
+        default_factory=lambda: Path(
+            _env("OPENROUTER_KEY_PATH", str(REPO_ROOT / "data" / "openrouter_key"))
+        )
+    )
+    # `openrouter/auto` lets OpenRouter choose per prompt, which is the only
+    # default that is right before anyone has picked. The picker overrides it,
+    # and what it picks is stored in the database rather than here.
+    openrouter_model: str = field(
+        default_factory=lambda: _env("OPENROUTER_MODEL", "openrouter/auto")
+    )
+    openrouter_url: str = field(
+        default_factory=lambda: _env("OPENROUTER_URL", "https://openrouter.ai/api/v1")
+    )
+
     # --- the device ------------------------------------------------------
     # Which directories the file skills may look inside, as a list separated by
     # the platform's path separator. Everything outside them is invisible: the
@@ -227,8 +252,8 @@ class Settings:
     )
 
 
-def read_search_key(path: Path) -> str:
-    """The saved key, or empty. Never raises -- a missing file is the normal
+def read_secret(path: Path) -> str:
+    """The saved secret, or empty. Never raises -- a missing file is the normal
     state before anyone has pasted one in."""
     try:
         return path.read_text(encoding="utf-8").strip()
@@ -236,15 +261,15 @@ def read_search_key(path: Path) -> str:
         return ""
 
 
-def write_search_key(path: Path, key: str) -> None:
-    """Persist or clear the key. Empty clears the file rather than writing a
+def write_secret(path: Path, value: str) -> None:
+    """Persist or clear a secret. Empty clears the file rather than writing a
     blank one, so the state on disk matches the state in memory."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    key = (key or "").strip()
-    if not key:
+    value = (value or "").strip()
+    if not value:
         path.unlink(missing_ok=True)
         return
-    path.write_text(key, encoding="utf-8")
+    path.write_text(value, encoding="utf-8")
     try:
         path.chmod(0o600)
     except OSError:
@@ -261,9 +286,13 @@ def load_settings() -> Settings:
     # The environment wins: someone who exported SEARCH_API_KEY meant it, and
     # a stale file should not quietly override this run.
     if not settings.search_api_key:
-        saved = read_search_key(settings.search_key_path)
+        saved = read_secret(settings.search_key_path)
         if saved:
             settings = Settings(**{**settings.__dict__, "search_api_key": saved})
+    if not settings.openrouter_api_key:
+        saved = read_secret(settings.openrouter_key_path)
+        if saved:
+            settings = Settings(**{**settings.__dict__, "openrouter_api_key": saved})
     return settings
 
 

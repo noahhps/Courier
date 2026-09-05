@@ -14,6 +14,7 @@ import { Starters } from "./components/Starters";
 import { TokenGate } from "./components/TokenGate";
 import { TopBar } from "./components/TopBar";
 import { useChat } from "./hooks/useChat";
+import { useModels } from "./hooks/useModels";
 import { useProjects } from "./hooks/useProjects";
 import { useRailWidth } from "./hooks/useRailWidth";
 import { useSessions } from "./hooks/useSessions";
@@ -60,8 +61,12 @@ export default function App() {
   // the settings page; the per-turn badge in the top bar is separate and more
   // current, because it reports which provider actually answered.
   const [status, setStatus] = useState(null);
-  // "local" | "cloud" | null. Null lets the server's router decide, which is
-  // the default and usually the right answer.
+  // "local" | "cloud" | "openrouter" | null. Null lets the server's router
+  // decide, which is the default and usually the right answer. Kept here
+  // rather than on the server: it is a per-turn field, and "answer this one
+  // locally" should not follow you to another device. Which *model* each
+  // backend uses is the opposite case and lives on the server -- see
+  // useModels.
   const [provider, setProvider] = useState(null);
 
   const bootstrapped = useRef("");
@@ -91,6 +96,10 @@ export default function App() {
   const onSessionsChanged = useCallback(() => {
     refresh().catch(() => {});
   }, [refresh]);
+
+  // Every backend, what it is pointed at, and everything it could be pointed
+  // at instead. Fetched once at mount and again whenever something changes it.
+  const models = useModels(api);
 
   const chat = useChat(api, { onSessionsChanged, provider });
   const { setBadge, openSession, startNew } = chat;
@@ -129,8 +138,13 @@ export default function App() {
 
         if (reported.serving === "none") {
           setBadge({ text: "no model reachable", tone: "down" });
-        } else if (reported.serving === "cloud") {
-          setBadge({ text: "cloud · " + reported.cloud.model, tone: "warn" });
+        } else if (reported.serving !== "local") {
+          // Named rather than called "cloud": there are two of those now, and
+          // which one is answering is the thing worth saying.
+          setBadge({
+            text: reported.serving + " · " + (reported[reported.serving]?.model || ""),
+            tone: "warn",
+          });
         }
 
         const list = await refresh();
@@ -146,6 +160,43 @@ export default function App() {
       }
     })();
   }, [api, token, refresh, openSession, startNew, setBadge]);
+
+  // Which backend the next message actually goes to: the one chosen, or --
+  // on Auto -- whichever the router reports it is using.
+  const answering =
+    provider || (status?.serving && status.serving !== "none" ? status.serving : "local");
+  // The reasoning control to draw, from the backend that will answer.
+  //
+  // `/status` describes the control a *family* takes, which is all it can know
+  // from a provider and a model name. Whether one particular model reasons at
+  // all is a per-model fact, and on OpenRouter it varies inside every family --
+  // so the catalogue row wins where there is one, and a model that says it
+  // cannot reason gets no control rather than one that does nothing.
+  // Depending on the list rather than on the hook's return value: that is a
+  // fresh object every render, and a memo keyed on it would recompute every
+  // time regardless.
+  const backends = models.providers;
+  const thinking = useMemo(() => {
+    const backend = backends.find((p) => p.id === answering) || status?.[answering] || null;
+    if (!backend) return null;
+    const row = (backend.models || []).find((m) => m.id === backend.model);
+    if (row && row.reasoning === false) return null;
+    return backend.thinking || null;
+  }, [answering, backends, status]);
+
+  const { choose } = models;
+  const chooseModel = useCallback(
+    async (providerId, model) => {
+      try {
+        await choose(providerId, model);
+      } catch (problem) {
+        // The picker is a menu, not a page: there is nowhere in it to put a
+        // sentence. The badge is where "what is answering" already lives.
+        setBadge({ text: problem.message || "could not switch model", tone: "down" });
+      }
+    },
+    [choose, setBadge],
+  );
 
   // -- actions --------------------------------------------------------------
 
@@ -234,8 +285,11 @@ export default function App() {
           view={view}
           onView={setView}
           status={status}
+          providers={backends}
           provider={provider}
           onProvider={setProvider}
+          onChooseModel={chooseModel}
+          onManageProviders={() => setView("settings")}
           pinned={railPinned}
           resizable={rail.enabled}
           resizing={rail.resizing}
@@ -306,11 +360,7 @@ export default function App() {
                 sessionLabel={chat.sessionId ? chat.title : null}
                 // Whichever side is actually answering describes its own
                 // reasoning control; the composer draws what it is handed.
-                thinking={
-                  (provider === "cloud" || status?.serving === "cloud"
-                    ? status?.cloud?.thinking
-                    : status?.local?.thinking) || null
-                }
+                thinking={thinking}
                 onSend={chat.send}
               />
 
@@ -345,6 +395,7 @@ export default function App() {
           ) : (
             <Settings
               status={status}
+              models={models}
               provider={provider}
               onProvider={setProvider}
               pinned={railPinned}

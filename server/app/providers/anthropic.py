@@ -105,6 +105,39 @@ class AnthropicProvider:
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         raise ProviderError("no embedding model on the cloud fallback path")
 
+    async def list_models(self) -> list[dict]:
+        """Claude models, from Anthropic rather than from a list kept here.
+
+        A hard-coded table would be wrong within a release: models are added
+        and retired on Anthropic's schedule, not this repository's. The API
+        answers the question, so it is asked -- and an install without the
+        package, or without a key, comes back empty rather than raising, since
+        "nothing to choose from" is exactly what the picker should show there.
+        """
+        try:
+            client = self._ensure_client()
+        except ProviderError:
+            return []
+        try:
+            listing = await client.models.list(limit=100)
+        except Exception:  # noqa: BLE001 -- an empty picker, not a failed page
+            return []
+        return [
+            {
+                "id": str(entry.id),
+                "name": str(getattr(entry, "display_name", "") or entry.id),
+                "description": "",
+                "context": None,
+                # Every current Claude model sees, calls tools and reasons; the
+                # per-model flags exist for OpenRouter, where they vary.
+                "vision": True,
+                "tools": True,
+                "reasoning": True,
+                "free": False,
+            }
+            for entry in getattr(listing, "data", []) or []
+        ]
+
     async def health(self) -> bool:
         try:
             self._ensure_client()

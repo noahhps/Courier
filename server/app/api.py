@@ -16,13 +16,22 @@ from pydantic import BaseModel, Field, model_validator
 
 from .attachments import AttachmentError
 from .attachments import decode as decode_attachments
-from .config import Settings, ThinkingLevel, write_search_key
+from .config import Settings, ThinkingLevel, write_secret
 from .thinking import control_for
 from .memory import MEMORY_DEFAULTS
 from .memory.facts import Curator
 from .memory.indexer import Indexer
 from .orchestrator import Orchestrator
-from .providers import ProviderRouter
+from .providers import (
+    CLOUD,
+    FALLBACK_ORDER,
+    LOCAL,
+    OPENROUTER,
+    OAuthFlows,
+    ProviderError,
+    ProviderRouter,
+    model_setting_key,
+)
 from .mcp import icons as mcp_icons
 from .mcp.settings import MCP_DEFAULTS
 from .situation import Situation
@@ -78,8 +87,11 @@ class ChatRequest(BaseModel):
     # that starts from the phone should say so even when the client opened it
     # implicitly by posting here without a session_id.
     client: ClientContext | None = None
-    # "local" | "cloud" | None (auto). Never switch silently -- the client
-    # asks for a specific provider or accepts whatever the router picks.
+    # "local" | "cloud" | "openrouter" | None (auto). Never switch silently --
+    # the client asks for a specific provider or accepts whatever the router
+    # picks. An unknown name is treated as auto rather than refused: a client
+    # from before a backend existed should degrade to the router's judgement,
+    # not to a 422 on every message.
     provider: str | None = None
     # Three shapes, because the families disagree: an effort word for gpt-oss,
     # a switch for deepseek and qwen, a token budget for Claude. Which one is
@@ -99,6 +111,31 @@ class ChatRequest(BaseModel):
 
 class SkillToggle(BaseModel):
     enabled: bool
+
+
+class ModelChoice(BaseModel):
+    # A model id as the provider spells it: `gpt-oss:20b` on Ollama,
+    # `anthropic/claude-sonnet-4.5` on OpenRouter. Never normalised here --
+    # the tag and the vendor prefix are both part of the name.
+    model: str = Field(min_length=1, max_length=200)
+
+
+class ProviderKey(BaseModel):
+    # Empty clears it, as with a skill's key: "disconnect" is the same request
+    # with nothing in it rather than a route of its own.
+    key: str = Field(default="", max_length=400)
+
+
+class SignIn(BaseModel):
+    """Where the browser should be sent back to after signing in.
+
+    The client passes its own origin, because that is the address the browser
+    reached this server on -- which is the phone's view of the LAN, or a
+    proxy's hostname, and not necessarily anything this process could work out
+    for itself. It is validated as an http(s) origin before it is used.
+    """
+
+    callback_base: str = Field(default="", max_length=300)
 
 
 class SkillKey(BaseModel):
@@ -295,8 +332,12 @@ def build_router(
     indexer: Indexer,
     curator: Curator,
     mcp_manager: Any = None,
+    oauth: OAuthFlows | None = None,
 ) -> APIRouter:
     router = APIRouter(dependencies=[Depends(auth)])
+    # One per server. Defaulted here rather than required so a test that builds
+    # a router by hand does not have to know the sign-in exists.
+    oauth = oauth or OAuthFlows()
 
     # The stored accent goes out as an object rather than as the JSON string
     # the column holds, so nothing downstream has to parse a field twice. A
@@ -641,7 +682,7 @@ def build_router(
                 skill.set_api_key(previous)
                 raise HTTPException(400, probe.strip())
 
-        write_search_key(settings.search_key_path, key)
+        write_secret(settings.search_key_path, key)
         # Clearing the key leaves the switch on but the skill unavailable, so
         # it is turned off here rather than left in a state the page would have
         # to explain.
@@ -649,6 +690,167 @@ def build_router(
             registry.set_enabled(name, False)
         return {"name": name, "configured": bool(key), "available": skill.available}
 
+
+    # -- models and providers ---------------------------------------------
+    #
+    # Three backends, each with its own list of models, and one place to
+    # choose between them. What is chosen is server state rather than a
+    # per-request field: the phone and the laptop are looking at the same
+    # assistant, and a model picked on one of them is picked. It is also what
+    # the two off-path passes -- titling and memory curation -- will use, and
+    # those have no request to carry a preference on.
+
+    def _thinking(provider_id: str) -> dict:
+        provider = providers.by_id[provider_id]
+        return control_for(provider.name, provider.model).to_dict()
+
+    async def _provider_state(provider_id: str) -> dict:
+        """One backend as the picker draws it, without its model list.
+
+        `healthy` is asked rather than assumed on every one of them: a key that
+        has been revoked and an Ollama that has been stopped both look exactly
+        like a configured provider from here, and the difference is the whole
+        point of the row.
+        """
+        provider = providers.by_id[provider_id]
+        try:
+            healthy = await provider.health()
+        except Exception:  # noqa: BLE001 -- an unreachable provider, not a 500
+            healthy = False
+        return {
+            "id": provider_id,
+            "name": provider.name,
+            "model": provider.model,
+            "healthy": healthy,
+            # Whether it has what it needs to be tried at all. Distinct from
+            # healthy: OpenRouter with no key is not configured, and OpenRouter
+            # with a revoked key is configured and unhealthy, and the sentence
+            # the settings page should show is different in each case.
+            "configured": bool(getattr(provider, "configured", True)),
+            "thinking": _thinking(provider_id),
+        }
+
+    async def _catalogue(provider_id: str) -> dict:
+        """The models one backend offers, or why it could not say.
+
+        Never raises. A provider that is down should cost its own section of
+        the picker, not the whole page -- the other two are still choosable.
+        """
+        provider = providers.by_id[provider_id]
+        lister = getattr(provider, "list_models", None)
+        if lister is None:
+            return {"models": [], "error": ""}
+        try:
+            return {"models": await lister(), "error": ""}
+        except ProviderError as exc:
+            return {"models": [], "error": str(exc)}
+        except Exception as exc:  # noqa: BLE001 -- reported in place, per provider
+            return {"models": [], "error": str(exc)[:200]}
+
+    @router.get("/models")
+    async def list_models() -> dict:
+        """Every backend, its state, and what it can be pointed at.
+
+        One call rather than three: the picker draws all of them at once, and
+        the round trips are what a phone on a slow link actually feels. They
+        are gathered concurrently for the same reason -- OpenRouter's listing
+        and Anthropic's are both network calls, and waiting for them in
+        series is twice the wait for no gain.
+        """
+        ids = list(providers.by_id)
+        states, catalogues = await asyncio.gather(
+            asyncio.gather(*(_provider_state(i) for i in ids)),
+            asyncio.gather(*(_catalogue(i) for i in ids)),
+        )
+        listed = [
+            {**state, **catalogue} for state, catalogue in zip(states, catalogues)
+        ]
+        # What the key has cost, for the one backend that will say. It rides
+        # here rather than on /status because /status is asked on every launch
+        # and this is asked when somebody is looking at the answer.
+        for entry in listed:
+            if entry["id"] == OPENROUTER and entry["healthy"]:
+                try:
+                    entry["account"] = await providers.openrouter.account()
+                except Exception:  # noqa: BLE001 -- a missing figure, not a 500
+                    pass
+        return {"providers": listed}
+
+    @router.put("/providers/{provider_id}/model")
+    async def choose_model(provider_id: str, body: ModelChoice) -> dict:
+        if provider_id not in providers.by_id:
+            raise HTTPException(404, f"no provider named {provider_id!r}")
+        model = body.model.strip()
+
+        # Checked against the catalogue when there is one, and accepted when
+        # there is not. A typo should be caught here rather than as a failed
+        # turn later -- but a listing that happens to be unreachable is not a
+        # reason to refuse a model the caller may well know exists.
+        catalogue = await _catalogue(provider_id)
+        known = {entry["id"] for entry in catalogue["models"]}
+        if known and model not in known:
+            raise HTTPException(
+                400,
+                f"{provider_id} has no model called {model!r}"
+                + (
+                    ". Pull it first: `ollama pull " + model + "`"
+                    if provider_id == LOCAL
+                    else ""
+                ),
+            )
+
+        providers.set_model(provider_id, model)
+        store.set_text_setting(model_setting_key(provider_id), model)
+        return {"provider": provider_id, "model": model, "thinking": _thinking(provider_id)}
+
+    @router.put("/providers/openrouter/key")
+    async def set_openrouter_key(body: ProviderKey) -> dict:
+        """Paste a key, or clear the one that is there.
+
+        Verified against OpenRouter before it is written down, for the reason
+        the search key gives: a key that is wrong by one character otherwise
+        fails on the first message, a turn later, as an error the model reports
+        rather than the page that asked for it.
+        """
+        key = body.key.strip()
+        previous = providers.openrouter.api_key
+        providers.openrouter.set_api_key(key)
+
+        if key and not await providers.openrouter.health():
+            providers.openrouter.set_api_key(previous)
+            raise HTTPException(400, "OpenRouter did not accept that key")
+
+        write_secret(settings.openrouter_key_path, key)
+        return await _provider_state(OPENROUTER)
+
+    @router.post("/providers/openrouter/signin")
+    def start_openrouter_signin(body: SignIn, request: Request) -> dict:
+        """Begin the sign-in and hand back the URL to open.
+
+        The server does not open anything: it has no browser, and on the setup
+        this is built for it is not even on the same device as the one being
+        used. The client opens the URL, the browser comes back to the callback
+        route below, and the client learns how it went by polling.
+        """
+        base = body.callback_base.strip() or str(request.base_url)
+        try:
+            flow = oauth.begin(base)
+        except ProviderError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"state": flow.state, "url": oauth.url_for(flow), "callback": flow.callback_url}
+
+    @router.get("/providers/openrouter/signin/{state}")
+    async def openrouter_signin_status(state: str) -> dict:
+        """How a sign-in went, for a client that is watching.
+
+        Polled rather than pushed. The alternative is a second SSE stream for
+        an event that happens once, and the flow expires in fifteen minutes
+        either way.
+        """
+        flow = oauth.get(state)
+        if flow is None:
+            return {"state": state, "status": "unknown", "error": ""}
+        return {**flow.to_dict(), "provider": await _provider_state(OPENROUTER)}
 
     # -- memory -----------------------------------------------------------
 
@@ -1155,25 +1357,32 @@ def build_router(
 
     @router.get("/status")
     async def status() -> dict:
-        local_ok = await providers.local.health()
-        cloud_ok = await providers.cloud.health()
+        """What is reachable, what it is pointed at, and what would answer now.
+
+        Each backend reports the reasoning control its own model takes, so the
+        composer can redraw when the provider changes rather than keeping a
+        list of model names in the browser.
+
+        `local` and `cloud` are still spelled out at the top level beside the
+        list: they are what the running client reads, and a status endpoint is
+        the wrong place to make a phone that has not reloaded yet go blank.
+        """
+        states = {
+            state["id"]: state
+            for state in await asyncio.gather(
+                *(_provider_state(i) for i in providers.by_id)
+            )
+        }
+        # The same order `resolve()` walks, so "serving" is genuinely what the
+        # next turn would use rather than a second opinion about it.
+        serving = next(
+            (i for i in (LOCAL, *FALLBACK_ORDER) if states[i]["healthy"]), "none"
+        )
         return {
-            "local": {
-                "healthy": local_ok,
-                "model": providers.local.model,
-                "url": providers.local.base_url,
-                "thinking": control_for("ollama", providers.local.model).to_dict(),
-            },
-            # Each side reports the reasoning control its own model takes, so
-            # the composer can redraw when the provider changes rather than
-            # keeping a list of model names in the browser.
-            "cloud": {
-                "healthy": cloud_ok,
-                "model": providers.cloud.model,
-                "thinking": control_for("anthropic", providers.cloud.model).to_dict(),
-            },
-            "serving": "local" if local_ok else ("cloud" if cloud_ok else "none"),
-            # ADD THIS NEW KEY:
-            "default_provider": "local", 
+            "local": {**states[LOCAL], "url": providers.local.base_url},
+            "cloud": states[CLOUD],
+            "openrouter": states[OPENROUTER],
+            "providers": [states[i] for i in providers.by_id],
+            "serving": serving,
         }
     return router
