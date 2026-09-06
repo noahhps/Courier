@@ -180,6 +180,32 @@ one place this schema deliberately does not cascade.
 `docs/memory.md` has the details, including the one setting worth checking
 against your own encoder.
 
+## Widgets
+
+A skill's answer, drawn rather than recited. Ask what time it is and the reply
+arrives with a card above it showing the time; ask what is on this week and the
+card is the week. The skill is the trigger — nothing here is scheduled or
+polled, and a card exists because the model reached for something while
+answering. That is also why a board belongs to a conversation rather than to
+the app: two chats ask for different things and end up looking different.
+
+Seven preset cards, one per shape of answer: the time, the calendar, web
+results, passages recalled from your own history, a fact remembered or
+forgotten, a folder, and the status of any tool an MCP server provides. A skill
+cannot invent a card — it picks a shape and fills it in, and the server refuses
+a field the client has no template for, so a card is either right or absent
+rather than blank.
+
+Under each card is the name of the skill that drew it, which opens the result
+the model was actually given. The card is a reading of that result and the
+reading should always be checkable without leaving the conversation. A skill
+still running keeps the trace row it has always had and becomes a card when its
+result lands; a skill whose answer is a sentence keeps its row for good.
+
+Cards are stored with the answer, so reopening a conversation brings back what
+you saw rather than only what the model read. `docs/widgets.md` has the
+presets, the escaping contract, and what to do to add one.
+
 ## Accents
 
 The whole client can be dressed in one colour, and so can a single project or
@@ -353,7 +379,10 @@ server/app/
     search.py      cosine + reciprocal rank fusion; pure
     indexer.py     catch_up() and search() — the write and read halves
     facts.py       the curation pass, and a parser that never raises
-  tests/           the pure parts of memory
+  widgets/
+    widget.py      Widget, and the str subclass a skill returns with one on it
+    catalog.py     the seven presets, and the validator that keeps skills inside
+  tests/           the pure parts of memory, and the widget catalogue
 client/            React, built by Vite; no CDN, no runtime dependencies
   src/
     App.jsx        auth phases, drawer, wiring
@@ -361,6 +390,8 @@ client/            React, built by Vite; no CDN, no runtime dependencies
                    useTheme (the accent, resolved across three scopes)
     lib/api.js     bearer token, SSE-over-fetch
     lib/markdown.js  the renderer -- escapes before it emits a single tag
+    lib/widgets.js   the card templates' renderer -- the same contract
+    lib/widgetPresets.js  one label and one HTML template per card
     lib/color.js     OKLCH <-> sRGB, WCAG contrast, gamut mapping
     lib/theme.js     one hue -> the whole palette; the ten named accents
     lib/autotheme.js what a conversation is about, as a hue
@@ -379,6 +410,11 @@ Vite serves the UI on :5173 and proxies `/api` to the server on :8080, so the
 dev UI talks to the real thing — real token, real streaming, real history.
 Run the Python server alongside it as usual. `npm run build` when you're done;
 the server only ever reads `dist/`.
+
+`npm test` runs the widget renderer's tests under plain `node --test`. They are
+the only tests in the client: everything else here needs a DOM, and the one
+piece with a security contract -- every value a skill sends is escaped before
+it reaches a card -- needs nothing but a string.
 
 ## Not built yet
 

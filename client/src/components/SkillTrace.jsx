@@ -47,13 +47,17 @@ function Row({ skill }) {
 export function SkillTrace({ skills }) {
   if (!skills?.length) return null;
 
-  const running = skills.some((s) => s.result === undefined);
+  // The one still waiting, rather than the last in the list. They are usually
+  // the same row and are not when a turn calls two skills at once, or when the
+  // board above has taken the finished ones and left this list out of order --
+  // and naming a skill that has already answered is worse than naming none.
+  const running = skills.find((s) => s.result === undefined);
 
   return (
     <div className="skill-trace" data-live={running ? "" : undefined}>
       <div className="skill-trace-label mi">
         {running
-          ? `Using ${skills[skills.length - 1].name}…`
+          ? `Using ${running.name}…`
           : `Used ${skills.length === 1 ? "1 skill" : `${skills.length} skills`}`}
       </div>
       {skills.map((skill, index) => (

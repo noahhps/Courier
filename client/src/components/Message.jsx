@@ -3,7 +3,7 @@ import { memo, useMemo } from "react";
 import { renderMarkdown } from "../lib/markdown";
 import { MessageAttachments } from "./Attachments";
 import { Reasoning } from "./Reasoning";
-import { SkillTrace } from "./SkillTrace";
+import { WidgetBoard } from "./WidgetBoard";
 
 /**
  * One turn.
@@ -73,7 +73,10 @@ export const Message = memo(function Message({
           <Reasoning text={reasoning} answering={Boolean(content)} />
         ) : null}
 
-        <SkillTrace skills={skills} />
+        {/* The cards the skills in this turn drew, and the trace for the
+            ones that drew nothing. Above the prose, like the reasoning: it
+            happened first, and the answer is written from it. */}
+        <WidgetBoard skills={skills} />
 
         {html ? (
           <div className="body" dangerouslySetInnerHTML={html} />

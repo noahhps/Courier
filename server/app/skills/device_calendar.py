@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from ..device import mac_calendar as backend
+from ..widgets import SkillResult, build
 from .skill import Skill
 
 MAX_LISTED = 40
@@ -35,6 +36,36 @@ def _describe(event) -> str:
     if extras:
         line += f"  [{' · '.join(extras)}]"
     return f"{line} ({event.notes})" if event.notes else line
+
+
+def _row(event) -> dict:
+    """One event as the card draws it: what, when, and one detail.
+
+    Duplicated between the two calendar modules, like `_describe` and `_lines`
+    above it. They answer to the same three skill names over two different
+    stores and are deliberately kept apart -- a shared base would have to know
+    about both, and only one of them is ever registered.
+    """
+    when = event.starts_at.split("T", 1)[0] if event.all_day else event.starts_at.replace("T", " ")
+    return {
+        "title": event.title,
+        "when": f"{when} (all day)" if event.all_day else when,
+        # The location if there is one, and otherwise which calendar it is on.
+        # Both answer "where does this belong", and a row with neither is a
+        # row with an empty column in it.
+        "detail": event.location or event.calendar,
+    }
+
+
+def _card(events, title: str, empty: str):
+    """The listing as a card, whether or not anything is on."""
+    return build(
+        "agenda",
+        title=title,
+        subtitle=f"{len(events)} event{'' if len(events) == 1 else 's'}" if events else None,
+        empty=None if events else empty,
+        events=[_row(e) for e in events],
+    )
 
 
 def _lines(events, empty: str) -> str:
@@ -83,7 +114,7 @@ class ListDeviceEvents(_CalendarSkill):
             requires="permission to read this Mac's calendar",
         )
 
-    async def use(self, days: int = 7) -> str:
+    async def use(self, days: int = 7) -> SkillResult | str:
         problem = self._ready()
         if problem:
             return problem
@@ -101,7 +132,15 @@ class ListDeviceEvents(_CalendarSkill):
         else:
             since, until = start + timedelta(days=span), start + timedelta(days=1)
             empty = f"Nothing on the calendar in the last {abs(span)} days."
-        return _lines(backend.list_events(since, until), empty)
+        events = backend.list_events(since, until)
+        # `span or 1` twice over, matching the window actually queried above:
+        # "the next 0 days" is today, and the card should say so.
+        span_label = (
+            f"Next {span or 1} day{'' if (span or 1) == 1 else 's'}"
+            if span >= 0
+            else f"Last {abs(span)} day{'' if abs(span) == 1 else 's'}"
+        )
+        return SkillResult(_lines(events, empty), _card(events, span_label, "Nothing on"))
 
 
 class FindDeviceEvents(_CalendarSkill):
@@ -122,7 +161,7 @@ class FindDeviceEvents(_CalendarSkill):
             requires="permission to read this Mac's calendar",
         )
 
-    async def use(self, query: str) -> str:
+    async def use(self, query: str) -> SkillResult | str:
         needle = (query or "").strip()
         if not needle:
             return "Give me something to search for."
@@ -141,7 +180,10 @@ class FindDeviceEvents(_CalendarSkill):
             or lowered in (e.notes or "").lower()
             or lowered in (e.location or "").lower()
         ]
-        return _lines(hits, f"Nothing on the calendar matches {needle!r}.")
+        return SkillResult(
+            _lines(hits, f"Nothing on the calendar matches {needle!r}."),
+            _card(hits, needle, "No match"),
+        )
 
 
 class AddDeviceEvent(_CalendarSkill):
