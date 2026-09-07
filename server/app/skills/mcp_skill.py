@@ -6,6 +6,7 @@ import json
 import re
 from typing import TYPE_CHECKING, Any
 
+from ..widgets import SkillResult, build
 from .skill import Skill
 
 if TYPE_CHECKING:
@@ -113,9 +114,63 @@ class MCPSkill(Skill):
     def available(self) -> bool:
         return self.manager.is_server_connected(self.server_name)
 
-    async def use(self, **kwargs) -> str:
-        """Execute the MCP tool via the MCP manager."""
+    async def use(self, **kwargs) -> SkillResult:
+        """Execute the MCP tool via the MCP manager, and say so on a card.
+
+        The one status card in the system, and the reason the `tool` preset
+        exists. Every other widget is written against a skill whose answer has
+        a known shape; an MCP tool's answer has whatever shape the server that
+        wrote it chose, so there is nothing to draw but the fact of the call --
+        which tool, whose server, whether it worked, and its first line.
+
+        That is worth drawing anyway. Most of the skills on a working install
+        arrive through here, and without this they are the only ones that run
+        invisibly.
+        """
         coerced = coerce_arguments(kwargs, self.parameters)
-        return await self.manager.call_tool(
+        text = await self.manager.call_tool(
             self.server_name, self.raw_tool_name, coerced
         )
+        return SkillResult(
+            text,
+            build(
+                "tool",
+                name=self.raw_tool_name,
+                source=self.server_name,
+                state="failed" if _refused(text) else "done",
+                summary=_summary(text),
+            ),
+        )
+
+
+# How the manager reports a call that did not work. Matched rather than raised
+# because `call_tool` returns the failure as text for the model to read -- see
+# mcp/manager.py -- and the card should not claim a refusal succeeded.
+_FAILED = ("error", "failed", "not connected", "timed out", "refused")
+
+
+def _refused(text: str) -> bool:
+    """Whether the tool's answer reads as a failure rather than a result.
+
+    Deliberately shallow: it looks at the opening of the first line only, so a
+    result that merely mentions the word "error" further in -- a log excerpt,
+    a search hit -- is still a result. Getting this wrong colours a dot; it
+    changes nothing else, and the text the model reads is untouched either way.
+    """
+    opening = text.strip().lower()[:60]
+    return any(opening.startswith(mark) or f" {mark}" in opening for mark in _FAILED)
+
+
+def _summary(text: str) -> str:
+    """The first line of the answer, for the face of the card.
+
+    An MCP tool commonly returns JSON, in which case the first line is `{` and
+    says nothing -- so a body that starts like a structure is described by its
+    size instead of quoted badly.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return "No output"
+    if stripped[0] in "{[":
+        return f"{len(stripped)} characters of structured output"
+    return stripped.splitlines()[0]
