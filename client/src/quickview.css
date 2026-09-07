@@ -4,11 +4,26 @@
   --qv-ink: #f4f6fa;
   --qv-dim: rgba(244, 246, 250, 0.62);
   --qv-faint: rgba(244, 246, 250, 0.4);
-  --qv-glass: rgba(120, 128, 145, 0.28);
-  --qv-glass-strong: rgba(140, 148, 165, 0.34);
+  /* The conversation paints no fill of its own. The frosted material is applied
+     natively to the window (see quickview.rs) and is the background; a
+     translucent wash laid over the whole panel -- which is what this token used
+     to be -- reads as an opaque white sheet sitting on top of the frost rather
+     than as the frost itself. Behind the thread there is nothing but text. */
+  --qv-glass: transparent;
+  /* The composer is the exception, and only the composer uses this. It is the
+     one thing here you act on rather than read, so it gets a faint white lift
+     off the material -- enough to sit forward of the conversation, well short
+     of the near-opaque 0.42/0.55 wash this used to be, which read as a white
+     tile rather than as glass. */
+  --qv-glass-strong: rgba(251, 251, 252, 0.219);
+  /* The one place a fill is still wanted: a pill has to read against whatever
+     it happens to be floating over. */
+  --qv-pill: rgba(255, 255, 255, 0.14);
   --qv-edge: rgba(255, 255, 255, 0.18);
   --qv-accent: #4d7dfa;
   --qv-radius: 18px;
+  /* Duplicated verbatim as `--font-mono` in styles.css -- the two entry points
+     do not share a stylesheet. Change both together. */
   --qv-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -41,16 +56,22 @@ body.qv-body {
   overflow: hidden;
 }
 
-.qv:not([data-started]) .qv-composer {
-  border-radius: var(--qv-radius);
-}
+/* The radius lives on `.qv-composer` itself now, in both states -- an outlined
+   box with square corners inside a rounded window reads as a mistake. */
 
+/* Nothing is drawn around the conversation. No fill, no edge, no shadow.
+ *
+ * A border and a drop shadow still describe a rectangle after the fill has
+ * gone -- the shadow especially, since it is painted outside the border box
+ * whether or not there is anything inside it, so what was left was an outlined
+ * square laid over the conversation with the desktop showing through the
+ * middle of it. The window's own rounded material is the panel's edge; the
+ * page inside it is text. */
 .qv[data-started] {
   background: var(--qv-glass);
-  border: 1px solid var(--qv-edge);
-  box-shadow:
-    0 24px 60px -20px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  /* What the withdrawn composer is positioned against -- see the block below
+     the composer. */
+  position: relative;
 }
 
 /* Thread ---------------------------------------------------------------- */
@@ -59,7 +80,10 @@ body.qv-body {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 16px 18px;
+  /* The bottom reserve is however much of the composer is on screen right now,
+     not the whole box: withdrawn, reserving its full height would leave a band
+     of nothing above a composer that had slid most of the way off the edge. */
+  padding: 16px 18px calc(var(--qv-peek, 64px) + 10px);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -82,6 +106,48 @@ body.qv-body {
   color: var(--qv-ink);
 }
 
+/* Text fades in as it arrives.
+ *
+ * `both` so the span starts at zero rather than flashing at full strength for
+ * the frame before the animation takes hold. 380ms is long enough to read as a
+ * fade and short enough that, at a chunk every ~50ms, only the last handful of
+ * words are ever still arriving. */
+@keyframes qv-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.qv-fade {
+  animation: qv-fade-in 380ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qv-fade { animation: none; }
+}
+
+/* The gap between sending and the first token. A word rather than the bare "…"
+   this used to be: an ellipsis on its own is indistinguishable from a reply
+   that opened with one, and says nothing about whether anything is happening.
+   The breathing is what carries "still working" -- a static label for four
+   seconds reads as a stall. */
+.qv-waiting {
+  color: var(--qv-dim);
+  animation: qv-breathe 1.4s ease-in-out infinite;
+}
+.qv-waiting::after {
+  /* In a pseudo-element so the dots animate without the word reflowing. */
+  content: "…";
+}
+
+@keyframes qv-breathe {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qv-waiting { animation: none; }
+}
+
 .qv-error {
   font-size: 11.5px;
   color: #ffd9a8;
@@ -92,21 +158,81 @@ body.qv-body {
   flex: none;
   margin: 0;
   padding: 13px 14px 11px;
-  background: var(--qv-glass-strong);
+  background: white;
+  /* The composer keeps its outline. It is the one thing here you act on rather
+     than read, and with no fill behind it the edge is the only thing saying
+     where the box you are typing into begins. The conversation above it takes
+     none -- that is text, and text does not need a frame. */
   border: 1px solid var(--qv-edge);
-  box-shadow:
-    0 20px 50px -22px rgba(0, 0, 0, 0.6),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  border-radius: var(--qv-radius);
   display: flex;
   flex-direction: column;
   gap: 10px;
   position: relative;          /* for DropZone absolute overlay */
+
+  /* Present, not tucked, as the fallback -- the same reasoning as the main
+     composer. `--near` is written by script in a layout effect before first
+     paint, so this costs no flash; what it buys is the failure mode. If the
+     effect throws, or the webview lacks something it needs, the result is a
+     composer that never hides rather than one stuck 80% below the edge of a
+     panel with no way to discover it. */
+  --near: 1;
+  /* What stays on screen when the box is fully withdrawn.
+   *
+   * A length, not the percentage this used to be. At `--tuck: 80%` the lip was
+   * whatever 20% of the composer happened to be -- about 18px, which is the
+   * top padding and four pixels of the textarea, so "Ask me. Task me." was
+   * sliced off at the ascenders and the withdrawn box said nothing about what
+   * it was. Worse, it moved: stage an attachment and the composer grows, 20%
+   * of it grows with it, and the lip stops meaning anything in particular.
+   *
+   * 36px is the top padding plus one line of the textarea, so the placeholder
+   * -- and the first line of anything half-typed -- is what remains, at any
+   * composer height. */
+  --qv-lip: 36px;
+  --qv-composer-motion: 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+
+/* The composer withdraws until you reach for it, exactly as it does in the
+ * main client -- same `--near`, same 80% tuck, same spring.
+ *
+ * Only on a thread. Empty, the panel *is* the composer: there is nothing for
+ * it to be in front of, tucking it would leave a keystroke opening onto a
+ * strip of frosted nothing, and it is the subject rather than an interruption.
+ * That is the same call `.screen[data-empty] .composer-box` makes in
+ * styles.css.
+ *
+ * Taken out of flow so the thread gets the height back rather than reading
+ * around a gap where the box used to be. `.qv-thread` then keeps clear of
+ * however much of the box is actually on screen -- `--qv-peek`, published by
+ * the same code that sets `--near`, so the two can never disagree. */
 .qv[data-started] .qv-composer {
-  border: none;
-  border-top: 1px solid var(--qv-edge);
-  box-shadow: none;
-  border-radius: 0;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* Everything below the lip slides off; the lip itself never does. */
+  transform: translateY(calc((100% - var(--qv-lip)) * (1 - var(--near))));
+  /* A floor of 0.82 rather than the 0.35 this started at. The placeholder is
+     already drawn in `--qv-faint`, so fading the box as well multiplied the
+     two and left the text at about a seventh of its colour -- present in the
+     DOM and invisible on screen. The withdrawal is the translate; the opacity
+     only takes the edge off. */
+  opacity: calc(0.82 + 0.18 * var(--near));
+  transition:
+    transform var(--qv-composer-motion),
+    opacity var(--qv-composer-motion),
+    border-color var(--qv-composer-motion);
+}
+
+/* Motion is the whole mechanism, so it is the first thing to go when motion is
+   not wanted. The box simply stays present. */
+@media (prefers-reduced-motion: reduce) {
+  .qv[data-started] .qv-composer {
+    transform: none;
+    opacity: 1;
+    transition: none;
+  }
 }
 
 /* Visual feedback while dragging files. */
@@ -155,7 +281,7 @@ body.qv-body {
 }
 .qv-drop-count {
   padding: 4px 10px;
-  background: var(--qv-glass-strong);
+  background: var(--qv-pill);
   border-radius: 999px;
   font-size: 11px;
 }
@@ -180,7 +306,7 @@ body.qv-body {
   align-items: center;
   gap: 5px;
   padding: 3px 8px 3px 4px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--qv-pill);
   border-radius: 999px;
   font-size: 11px;
   color: var(--qv-dim);
@@ -279,26 +405,121 @@ body.qv-body {
 }
 .qv-composer textarea::placeholder { color: var(--qv-faint); }
 
-/* Sent attachments (in thread) ------------------------------------------- */
-.qv-attachments {
+/* Files in the thread ------------------------------------------------------
+ *
+ * A group of files is drawn as a fanned stack with its name underneath, the
+ * way a pile of prints sits on a desk -- not as a grid of equal squares. The
+ * point is that a group reads as *one* thing you can take in at a glance: six
+ * photos that went into an album are one outcome, and six separate tiles in a
+ * row would say six.
+ *
+ * The stack shows the first few and says how many more, because past three or
+ * four the fan stops being legible and starts being a smear. */
+.qv-files {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
+  align-items: flex-start;
+  gap: 18px 22px;
+  margin-top: 10px;
 }
-.qv-attach-thumb {
-  width: 48px;
-  height: 48px;
+/* The user's turn is set to the right, so its files hang from the same edge as
+   its text rather than drifting back to the left under it. */
+.qv-turn[data-role="user"] .qv-files { justify-content: flex-end; }
+.qv-turn[data-role="user"] .qv-file-caption { text-align: right; }
+
+.qv-file-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.qv-file-stack {
+  display: flex;
+  align-items: flex-start;
+  /* The overlap is a negative margin on every tile but the first, so the fan
+     stays in flow and the group's caption sits under its true width. */
+  padding: 4px 0;
+}
+
+.qv-file-tile {
+  width: 62px;
+  height: 62px;
+  flex: none;
   object-fit: cover;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  /* The white keyline is the print border. It is the one deliberately opaque
+     thing left in the panel: a photograph needs an edge to stop against or it
+     bleeds into whatever is behind the glass. */
+  border: 3px solid #ffffff6c;
+  box-shadow: 0 3px 10px -2px rgba(0, 0, 0, 0.45);
+  background: var(--qv-pill);
 }
-.qv-attach-chip {
-  padding: 3px 10px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 999px;
+.qv-file-tile + .qv-file-tile { margin-left: -20px; }
+
+/* A slight scatter, so the stack looks set down rather than stacked by a
+   machine. Fixed angles per position rather than random ones: a fan that
+   reshuffles itself on every re-render is a distraction, not a texture. */
+.qv-file-tile:nth-child(1) { transform: rotate(-4deg); }
+.qv-file-tile:nth-child(2) { transform: rotate(3deg); }
+.qv-file-tile:nth-child(3) { transform: rotate(-2deg); }
+.qv-file-tile:nth-child(4) { transform: rotate(5deg); }
+
+/* The overflow marker, sized and shaped like a tile so the fan keeps its
+   rhythm. */
+.qv-file-more {
+  width: 62px;
+  height: 62px;
+  flex: none;
+  margin-left: -20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  border: 3px solid #ffffff64;
+  box-shadow: 0 3px 10px -2px rgba(0, 0, 0, 0.45);
+  /* Its own value, not `--qv-glass-strong`. That token is `transparent` by
+     design now, and a var() fallback does not help -- a fallback applies when
+     the property is *undefined*, not when it is defined as transparent, so
+     this card came out invisible with a count floating in the middle of it. */
+  background: rgba(38, 44, 56, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   font-size: 11px;
+  color: #f4f6fa6d;
+  transform: rotate(4deg);
+}
+
+.qv-file-caption {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
   color: var(--qv-dim);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A file with nothing to show a picture of. Same footprint as a tile so a
+   mixed group still lines up. */
+.qv-file-doc {
+  width: 62px;
+  height: 62px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 3px;
+  border: 3px solid #fff;
+  box-shadow: 0 3px 10px -2px rgba(0, 0, 0, 0.45);
+  background: var(--qv-pill);
+  font-size: 9.5px;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--qv-dim);
+  overflow: hidden;
+  word-break: break-all;
 }
 
 /* Light-mode overrides --------------------------------------------------- */
@@ -307,8 +528,12 @@ body.qv-body {
     --qv-ink: #0e1420;
     --qv-dim: rgba(14, 20, 32, 0.62);
     --qv-faint: rgba(14, 20, 32, 0.42);
-    --qv-glass: rgba(255, 255, 255, 0.42);
-    --qv-glass-strong: rgba(255, 255, 255, 0.55);
+    /* A touch stronger than the dark scheme's 0.14. White on a pale material
+       has less to push against, so the same alpha that lifts the composer off
+       a dark frost is invisible on a light one -- but this is still well under
+       the 0.55 that read as a tile. */
+    --qv-glass-strong: rgba(255, 255, 255, 0.3);
+    --qv-pill: rgba(20, 23, 29, 0.06);
     --qv-edge: rgba(20, 23, 29, 0.1);
   }
   .qv-round { background: rgba(20, 23, 29, 0.06); }

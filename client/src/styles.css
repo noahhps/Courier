@@ -169,13 +169,20 @@
    * appearing at the moment the geometry stops rather than after it. */
   --rail-motion: 200ms ease-in-out;
 
-  /* 1c is a single-family system: one grotesque at every size, with weight and
-     tracking doing the work, and a mono for labels and machine output. Neither
-     is vendored -- the project rule is no CDN and this is served over a tailnet
-     that is often offline -- so both fall through to the platform grotesque
-     until a woff2 lands in public/fonts. */
-  --font: "Space Grotesk", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "DM Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* One family at every size -- the mono QuickView is drawn in. The sheet used
+     to run a grotesque for prose and keep the mono for labels, but the two
+     entry points then rendered as two different products: QuickView opens over
+     whatever the user is looking at and is the surface they see most, so it is
+     the one the rest of the app matches rather than the other way round.
+     Nothing is vendored -- the project rule is no CDN and this is served over a
+     tailnet that is often offline -- so this falls through to the platform
+     mono, which is what QuickView already resolves to.
+
+     This stack is duplicated verbatim as `--qv-mono` in quickview.css. The two
+     entry points do not share a stylesheet, so the duplication is the only way
+     to keep them identical; change both together. */
+  --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font: var(--font-mono);
 
   /* One type scale. Before this the sheet used nineteen sizes -- 12 and 12.5
      and 13 and 13.5 all doing the same job in different components -- which is
@@ -196,10 +203,14 @@
   --t-xl: 27px;
 
   /* Three trackings, one per role. Anything else was drift: 0.03em on a chip
-     and 0 on its neighbour is not a decision, it is two people guessing. */
+     and 0 on its neighbour is not a decision, it is two people guessing.
+     Body and display sit at zero now that the family is a mono: a monospace
+     advance is already a fixed grid, and closing it up by a fraction of an em
+     only collides the glyphs. The label keeps its opening -- tracked-out
+     uppercase is the one place extra space is doing real work. */
   --track-label: 0.16em;    /* the machine label, opened right up */
-  --track-display: -0.035em; /* headings, closed up as they get larger */
-  --track-body: -0.005em;   /* everything else */
+  --track-display: 0;       /* headings */
+  --track-body: 0;          /* everything else */
 }
 
 * { box-sizing: border-box; }
@@ -211,7 +222,10 @@ body {
   background: var(--shell);
   color: var(--text);
   font-family: var(--font);
-  font-weight: 300;
+  /* 400, matching QuickView. The old 300 was there to keep a grotesque light
+     at large sizes; the platform mono has no 300, so asking for one only got a
+     synthesised weight that rendered thinner on some surfaces than others. */
+  font-weight: 400;
   letter-spacing: var(--track-body);
   -webkit-font-smoothing: antialiased;
 }
@@ -1503,7 +1517,7 @@ html[data-fullscreen] .app[data-rail="pinned"] .navrail-inner {
 }
 
 .topbar .title {
-  font-weight: 300;
+  font-weight: 400;
   font-size: var(--t-lg);
   letter-spacing: var(--track-display);
   color: var(--ink);
@@ -2719,7 +2733,7 @@ p.provider-problem { margin: 9px 0 0; font: 400 var(--t-sm)/1.5 var(--font); }
 .gate-card > * { position: relative; }
 .gate-card h1 {
   margin: 0;
-  font-weight: 300;
+  font-weight: 400;
   font-size: var(--t-xl);
   letter-spacing: var(--track-display);
 }

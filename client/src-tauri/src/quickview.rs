@@ -36,6 +36,21 @@ pub fn shortcut_spec() -> String {
 /// document*. Blurring the desktop behind the window is a native material, so
 /// it is applied to the window and the page is left transparent on top of it.
 pub fn frost(window: &WebviewWindow) {
+    // The webview paints its own opaque ground unless told not to, and
+    // `transparent: true` in tauri.conf.json is not enough on its own: that
+    // makes the *window* transparent, while the webview goes on filling itself
+    // with white underneath the page. The material then sits behind an opaque
+    // sheet of nothing and none of it is ever seen.
+    //
+    // The main window has cleared this since the rail went to glass (see the
+    // setup block in lib.rs); the panel never did, because its stylesheet used
+    // to paint a translucent fill over the whole thing, which hid the white
+    // well enough to look deliberate. Take the fill away and what is left is a
+    // white slab under the conversation.
+    if let Err(err) = window.set_background_color(None) {
+        eprintln!("[quickview] could not clear the webview background: {err}");
+    }
+
     #[cfg(target_os = "macos")]
     {
         use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};

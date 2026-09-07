@@ -126,6 +126,11 @@ export function Composer({
   const picker = useRef(null);
   const dragDepth = useRef(0);
   const stagedRef = useRef(staged);
+  // Raised while `publishPeek` is driving the thread's scrollTop itself, so the
+  // scroll listener in the proximity effect can tell that scroll apart from one
+  // the reader performed. Without it the two halves of this component drove
+  // each other: see the note over `selfScroll` in `publishPeek`.
+  const selfScroll = useRef(false);
   stagedRef.current = staged;
 
   // Grow with the text, up to 40% of the viewport.
@@ -178,7 +183,31 @@ export function Composer({
       thread && thread.scrollHeight - thread.scrollTop - thread.clientHeight < STICK_PX;
 
     root.style.setProperty("--composer-peek", peek + "px");
-    if (thread && atEnd) thread.scrollTop = thread.scrollHeight;
+
+    // The scroll below is ours, and the proximity effect has to know that.
+    //
+    // It listens for `scroll` to decide the reader is reading and the box
+    // should get out of the way -- but a scroll event carries no mark of who
+    // caused it, so it counted this one too. That closed a loop: approaching
+    // the box raised it, raising it scrolled the thread, the scroll read as
+    // "reading" and dropped the box back down. The next twitch of the pointer
+    // -- and a hand resting on a mouse never stops twitching -- raised it
+    // again, and round it went. The composer swinging between tucked and
+    // present while the thread's padding and scrollTop chased it is the
+    // shaking you get from merely hovering near the box without clicking it.
+    //
+    // Cleared on the next frame rather than on the line after: scroll events
+    // are dispatched in the rendering steps, which run before animation frame
+    // callbacks, so by the time this fires the event it is covering has
+    // already been and gone. If the assignment landed on the position the
+    // thread was already at, no event comes and clearing it is a no-op.
+    if (thread && atEnd) {
+      selfScroll.current = true;
+      thread.scrollTop = thread.scrollHeight;
+      requestAnimationFrame(() => {
+        selfScroll.current = false;
+      });
+    }
   }, []);
 
   const currentNear = useCallback(() => {
@@ -320,6 +349,7 @@ export function Composer({
     // reference to the scroller, and this way it also covers anything else
     // that scrolls underneath it.
     const onScroll = () => {
+      if (selfScroll.current) return; // our own scroll, not the reader's
       if (reading) return; // already down; nothing to recompute
       reading = true;
       schedule();
