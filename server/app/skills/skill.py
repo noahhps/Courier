@@ -43,7 +43,14 @@ class Skill(ABC):
 
     @abstractmethod
     async def use(self, **kwargs) -> str:
-        """Run the skill and return its result as text."""
+        """Run the skill and return its result as text.
+
+        Or a `widgets.SkillResult`, when the answer has a shape worth drawing:
+        the same text for the model, plus one preset card for the reader. The
+        turn loop accepts either, so a skill gains a widget by changing this
+        one return and nothing else -- see `app/widgets/catalog.py` for the
+        cards that exist and `docs/widgets.md` for how to add one.
+        """
 
     def __str__(self) -> str:
         return f"Skill name: {self.name}, Skill Description: {self.description}\n"

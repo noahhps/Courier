@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from ..memory.indexer import Indexer
+from ..widgets import SkillResult, build
 from .skill import Skill
 
 # How many hits come back. The orchestrator truncates a skill result at 4000
@@ -49,7 +50,7 @@ class Recall(Skill):
         )
         self.indexer = indexer
 
-    async def use(self, query: str = "") -> str:
+    async def use(self, query: str = "") -> SkillResult | str:
         query = (query or "").strip()
         if not query:
             return "search_history needs a query -- a few words to look for."
@@ -62,16 +63,40 @@ class Recall(Skill):
             return f"The history search failed: {type(exc).__name__}: {exc}"
 
         if not hits:
-            return (
+            return SkillResult(
                 f"Nothing in the history matches {query!r}. "
                 "This is the complete record, so it is safe to say you have "
-                "not discussed it before."
+                "not discussed it before.",
+                # Worth a card of its own. An empty search is the strongest
+                # answer this skill gives -- it is what lets the reply say
+                # "you have never mentioned it" rather than "I don't think so"
+                # -- and it should not be the one result that leaves no trace.
+                build("recall", query=query, empty="Nothing in the history"),
             )
 
         blocks = [f"{len(hits)} passage(s) from the user's history, best first:"]
         for index, hit in enumerate(hits, start=1):
             blocks.append(f"{index}. {_header(hit)}\n{_snippet(hit.chunk.content)}")
-        return "\n\n".join(blocks)
+        return SkillResult("\n\n".join(blocks), _card(query, hits))
+
+
+def _card(query: str, hits: list):
+    """The passages as a card.
+
+    The same `_header` and `_snippet` the model is given: a reader comparing
+    the card with the fold-out result should see the two agree, and a card
+    that paraphrased its own evidence would be the one place in this feature
+    where the shown half and the told half could drift apart.
+    """
+    return build(
+        "recall",
+        query=query,
+        subtitle=f"{len(hits)} passage{'' if len(hits) == 1 else 's'}",
+        passages=[
+            {"source": _header(hit), "text": _snippet(hit.chunk.content)}
+            for hit in hits
+        ],
+    )
 
 
 def _header(hit) -> str:

@@ -21,6 +21,7 @@ from __future__ import annotations
 import fnmatch
 from pathlib import Path
 
+from ..widgets import SkillResult, build
 from .skill import Skill
 
 # What never gets listed or read, however it is asked for. These are the things
@@ -118,19 +119,42 @@ def resolve(given: str, roots: tuple[Path, ...]) -> Path:
 
 
 def _describe(path: Path) -> str:
-    try:
-        stat = path.stat()
-    except OSError:
+    size = _size(path)
+    if size is None:
         return f"{path.name}  (unreadable)"
+    return f"{path.name}/" if path.is_dir() else f"{path.name}  {size}"
+
+
+def _size(path: Path) -> str | None:
+    """How big a file is, or None when it could not be read at all.
+
+    Split out of `_describe` so the card and the line the model reads report
+    the same figure. Reading it back out of `_describe` was the alternative and
+    was wrong for any name containing two spaces of its own.
+    """
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None
     if path.is_dir():
-        return f"{path.name}/"
-    size = stat.st_size
+        return ""
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024 or unit == "GB":
-            shown = f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
-            break
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
-    return f"{path.name}  {shown}"
+    return ""
+
+
+def _row(path: Path) -> dict:
+    """One entry as the card draws it: the name, what it is, how big.
+
+    Fields rather than the one line `_describe` writes, which is composed to be
+    read among other lines. A card has columns and can right-align the sizes,
+    which is the whole of why it scans faster than the text the model got.
+    """
+    if path.is_dir():
+        return {"name": path.name, "kind": "folder"}
+    return {"name": path.name, "kind": "file", "size": _size(path)}
 
 
 class _Rooted(Skill):
@@ -170,7 +194,7 @@ class ListDirectory(_Rooted):
             settings=settings,
         )
 
-    async def use(self, path: str | None = None) -> str:
+    async def use(self, path: str | None = None) -> SkillResult | str:
         roots = self.roots
         if not roots:
             return "No folders have been shared with me."
@@ -193,12 +217,23 @@ class ListDirectory(_Rooted):
             return f"I could not read {target}: {exc}"
         visible = [e for e in entries if not _hidden(e, roots)]
         if not visible:
-            return f"{target} is empty."
+            return SkillResult(
+                f"{target} is empty.",
+                build("files", path=str(target), empty="Empty folder"),
+            )
         shown = visible[:MAX_ENTRIES]
         out = "\n".join(_describe(e) for e in shown)
         if len(visible) > MAX_ENTRIES:
             out += f"\n… and {len(visible) - MAX_ENTRIES} more."
-        return f"{target}:\n{out}"
+        return SkillResult(
+            f"{target}:\n{out}",
+            build(
+                "files",
+                path=str(target),
+                subtitle=f"{len(visible)} item{'' if len(visible) == 1 else 's'}",
+                entries=[_row(e) for e in shown],
+            ),
+        )
 
 
 class ReadFile(_Rooted):
@@ -289,7 +324,7 @@ class SearchFiles(_Rooted):
             settings=settings,
         )
 
-    async def use(self, pattern: str, path: str | None = None) -> str:
+    async def use(self, pattern: str, path: str | None = None) -> SkillResult | str:
         roots = self.roots
         needle = (pattern or "").strip()
         if not needle:
@@ -318,9 +353,21 @@ class SearchFiles(_Rooted):
                 if fnmatch.fnmatch(candidate.name.lower(), needle.lower()):
                     found.append(candidate)
 
+        where = ", ".join(str(b) for b in bases)
         if not found:
-            return f"Nothing matching {pattern!r} in {', '.join(str(b) for b in bases)}."
+            return SkillResult(
+                f"Nothing matching {pattern!r} in {where}.",
+                build("files", path=where, empty=f"No match for {pattern}"),
+            )
         out = "\n".join(str(f) for f in found)
         if len(found) >= MAX_MATCHES:
             out += f"\n… stopped at {MAX_MATCHES} matches; narrow the pattern."
-        return out
+        return SkillResult(
+            out,
+            build(
+                "files",
+                path=where,
+                subtitle=f"{len(found)} match{'' if len(found) == 1 else 'es'} for {pattern}",
+                entries=[_row(f) for f in found],
+            ),
+        )

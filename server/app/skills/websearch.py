@@ -19,8 +19,11 @@ text, and this system will eventually be able to write its own code.
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 import httpx
 
+from ..widgets import SkillResult, build
 from .skill import Skill
 
 # Long enough for a slow engine, short enough that a turn does not appear hung.
@@ -91,7 +94,7 @@ class WebSearch(Skill):
         """
         self.api_key = (key or "").strip()
 
-    async def use(self, query: str, count: int | None = None) -> str:
+    async def use(self, query: str, count: int | None = None) -> SkillResult | str:
         query = (query or "").strip()
         if not query:
             return "No query given -- say what to search for."
@@ -128,16 +131,61 @@ class WebSearch(Skill):
             return "The search returned something this skill couldn't read."
 
         if not results:
-            return f"No results for {query!r}."
+            # A card even for nothing found. "I searched and there was nothing"
+            # and "I never searched" look identical in a reply, and only one of
+            # them means the answer that follows is worth less.
+            return SkillResult(
+                f"No results for {query!r}.",
+                build("sources", query=query, empty="No results"),
+            )
 
+        shown = results[:wanted]
         lines = [_PREAMBLE.format(query=query), ""]
-        for index, item in enumerate(results[:wanted], start=1):
+        for index, item in enumerate(shown, start=1):
             lines.append(f"{index}. {item['title']}")
             lines.append(f"   {item['url']}")
             if item["snippet"]:
                 lines.append(f"   {item['snippet']}")
             lines.append("")
-        return "\n".join(lines).rstrip()
+        return SkillResult("\n".join(lines).rstrip(), _card(query, shown))
+
+
+def _card(query: str, results: list[dict]):
+    """The results as a card.
+
+    Titles and snippets here are strangers' words, and this is the one place in
+    the app where they reach a browser as anything other than a text node --
+    the client interpolates them into a template. `_clean` above says it is not
+    a sanitiser and it still is not: the escaping is the template's job and is
+    done on every value it substitutes. See `client/src/lib/widgets.js`.
+
+    The URL travels with the row so the card can link, and is the reason that
+    renderer has a `|url` filter: escaping a `javascript:` href leaves it a
+    working `javascript:` href.
+    """
+    return build(
+        "sources",
+        query=query,
+        subtitle=f"{len(results)} result{'' if len(results) == 1 else 's'}",
+        results=[
+            {
+                "title": item["title"],
+                "domain": _host(item["url"]),
+                "url": item["url"],
+                "snippet": item["snippet"],
+            }
+            for item in results
+        ],
+    )
+
+
+def _host(url: str) -> str:
+    """The part of a URL a reader weighs before clicking it."""
+    try:
+        host = urlsplit(url).netloc
+    except ValueError:
+        return ""
+    return host[4:] if host.startswith("www.") else host
 
 
 def _parse(payload: dict) -> list[dict]:

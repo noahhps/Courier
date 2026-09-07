@@ -29,6 +29,7 @@ from .providers import (
 )
 from .skills.registry import Registry
 from .store import Store, StoredAttachment, StoredMessage
+from .widgets import SkillResult, Widget
 
 
 
@@ -352,9 +353,22 @@ class Orchestrator:
                     # for. `finally` persists whatever this list holds.
                     record = {"name": call.name, "arguments": call.arguments}
                     used.append(record)
-                    result = await self._run_skill(call, session_id)
+                    outcome = await self._run_skill(call, session_id)
+                    # Plain `str`, not the subclass: this is what goes into a
+                    # message row and back into the window, and neither has any
+                    # use for the card hanging off it.
+                    result = str(outcome)
                     record["result"] = result
-                    yield _sse("tool_result", {"name": call.name, "text": result})
+                    # The card, when the skill drew one. Stored on the same
+                    # record as the text so reopening the conversation brings
+                    # back what the reader saw, not only what the model read.
+                    card = outcome.widget.to_dict() if outcome.widget else None
+                    if card:
+                        record["widget"] = card
+                    yield _sse(
+                        "tool_result",
+                        {"name": call.name, "text": result, "widget": card},
+                    )
                     window.append(
                         Message(
                             role="tool",
@@ -424,8 +438,12 @@ class Orchestrator:
         async for chunk in provider.stream(reduced, think=think, tools=tools):
             yield chunk
 
-    async def _run_skill(self, call, session_id: str | None = None) -> str:
-        """One skill call, reduced to text the model can read.
+    async def _run_skill(self, call, session_id: str | None = None) -> SkillResult:
+        """One skill call, as text for the model and a card for the reader.
+
+        Always a `SkillResult`, whichever of the two the skill itself returned:
+        a plain string is the ordinary case and becomes one here, so the loop
+        above has a single shape to handle rather than a type test per call.
 
         Every failure returns rather than raises. A model that mistypes an
         argument name should cost one round and be told what it got wrong --
@@ -434,12 +452,12 @@ class Orchestrator:
         skill = self.registry.get(call.name) if self.registry else None
         if skill is None:
             known = ", ".join(name for name, _ in self.registry.enabled()) if self.registry else ""
-            return (
+            return SkillResult(
                 f"There is no skill called {call.name!r}."
                 + (f" Available: {known}." if known else "")
             )
         if not skill.enabled:
-            return f"{call.name} is switched off."
+            return SkillResult(f"{call.name} is switched off.")
         arguments = dict(call.arguments)
         if skill.wants_context and session_id:
             # Assigned after the copy, so a model that hallucinates a `context`
@@ -449,10 +467,10 @@ class Orchestrator:
             result = await skill.use(**arguments)
         except TypeError as exc:
             # Almost always a hallucinated or missing argument name.
-            return f"{call.name} was called wrongly: {exc}"
+            return SkillResult(f"{call.name} was called wrongly: {exc}")
         except Exception as exc:
-            return f"{call.name} failed: {type(exc).__name__}: {exc}"
-        return str(result)[:MAX_RESULT_CHARS]
+            return SkillResult(f"{call.name} failed: {type(exc).__name__}: {exc}")
+        return _as_result(result)
 
     def _persist(
         self,
@@ -523,6 +541,30 @@ class Orchestrator:
 
         self.store.rename_session(session_id, title)
         return title
+
+
+def _as_result(returned) -> SkillResult:
+    """Whatever a skill returned, trimmed, with its card kept.
+
+    Widgets are opt-in, so most skills still return a plain string and always
+    will: a card is worth writing for a skill whose answer has a shape, and is
+    dead weight on one whose answer is a sentence.
+
+    The card is lifted off *before* the trim rather than after. `SkillResult`
+    is a `str` subclass and slicing one gives back an ordinary string, so the
+    other order would silently drop the widget of every skill whose text ran
+    past MAX_RESULT_CHARS -- which is exactly the skills with the most to draw.
+
+    A widget that is not a `Widget` is dropped rather than trusted. Nothing in
+    this repository does that today; the check is what keeps a skill written
+    later from putting an unvalidated dict on the wire, where the client would
+    read it as a card it has no template for.
+    """
+    widget = getattr(returned, "widget", None)
+    return SkillResult(
+        str(returned)[:MAX_RESULT_CHARS],
+        widget if isinstance(widget, Widget) else None,
+    )
 
 
 def _to_message(stored: StoredMessage, attached, carried: set[str]) -> Message:

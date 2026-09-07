@@ -222,7 +222,11 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
               .reverse()
               .map((s) =>
                 !filled && s.name === data.name && s.result === undefined
-                  ? ((filled = true), { ...s, result: data.text })
+                  ? // The card, when the skill drew one, on the same record as
+                    // the text. `|| undefined` rather than the null the server
+                    // sends, so a live turn and a reopened one hold the same
+                    // shape -- a stored record simply has no `widget` key.
+                    ((filled = true), { ...s, result: data.text, widget: data.widget || undefined })
                   : s,
               )
               .reverse();
