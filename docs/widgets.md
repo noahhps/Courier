@@ -21,18 +21,27 @@ Above the answer, where the reasoning already sits, because it happened before
 the answer and the answer was written from it:
 
 ```
-TIME                    WEB
-┌─────────────────┐    ┌──────────────────────┐
-│ 14:05      BST  │    │ gimlet labs  3 RESULTS│
-│ Sunday 6 Sept   │    │ Gimlet raises $300M   │
-└─────────────────┘    │ REUTERS.COM           │
- current_time          └──────────────────────┘
-                        web_search
+Time                      News
+╭────────────────────╮   ╭─────────────────────────╮
+│ 14:05  BST         │   │ gimlet labs   3 results │
+│ Sunday 6 September │   │ Gimlet raises $300M     │
+│                    │   │ reuters.com · The round │
+│ current_time       │   │ web_search              │
+╰────────────────────╯   ╰─────────────────────────╯
 ```
 
-The line under each card names the skill that produced it, and opens the result
-the model was actually given. A card is a *reading* of that result, and the
-reading should always be checkable without leaving the conversation.
+The tiles are drawn to the reference boards rather than to the rules at the top
+of `styles.css`: a real radius, a shadow and no border, and a sentence-case
+label in the body face. Those three departures are scoped to `.widget-board`
+and are written down where they are made.
+
+One tile is tinted, as the boards have one — the clock, because it is the
+ambient card, the thing that is simply true right now rather than something
+looked up. The fill is the accent, so it follows a chosen theme.
+
+The last line inside each card names the skill that produced it, and opens the
+result the model was actually given. A card is a *reading* of that result, and
+the reading should always be checkable without leaving the conversation.
 
 Two things deliberately stay as they were:
 
@@ -138,7 +147,9 @@ card renders blank with nothing anywhere saying why.
    those field names, and nothing else.
 3. **`client/src/styles.css`** — under `-- widgets --`. Reuse the classes that
    are there before adding one; a card that looks unlike its neighbours reads
-   as pasted in from another product.
+   as pasted in from another product. A list row is `widget-row-top` with the
+   name and a right-aligned `widget-side`, then a grey `widget-row-sub` under
+   both — that shape is most of why the boards scan the way they do.
 4. **The skill** — return `SkillResult(text, build("your_kind", ...))` instead
    of the string it already returns. Do not change the text: it is what the
    model reads, and every test of that skill asserts on it.

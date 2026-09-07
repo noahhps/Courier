@@ -3143,25 +3143,40 @@ p.provider-problem { margin: 9px 0 0; font: 400 var(--t-sm)/1.5 var(--font); }
 
 /* -- widgets ----------------------------------------------------------------
  *
- * A skill's answer, drawn rather than recited. The composition is the one in
- * the reference boards: a quiet label, a card, and inside it the thing you
- * came to read at the size you can read from across the desk.
+ * A skill's answer, drawn rather than recited. The brief for these tiles is
+ * the reference boards: a quiet sentence-case label, a soft-cornered card
+ * floating on the sheet, and inside it the thing you came to read at the size
+ * you can read from across the desk.
  *
- * Everything else is this sheet's own vocabulary rather than the reference's.
- * Those boards are drawn with soft 12px corners and their own type; this app
- * decided at the top of this file that rounding is not part of its language
- * and that one grotesque does every job, and a card that ignored both would
- * read as something pasted in from another product.
+ * They are the one part of this app drawn to that brief rather than to the
+ * rules at the top of this file, and the departures are deliberate and scoped
+ * to `.widget-board` so nothing else moves:
+ *
+ * * a real radius, where the sheet collapses all four to 3px. A widget is a
+ *   tile in a grid rather than a panel ruled onto the page, and the boards
+ *   read as tiles because of the corners more than anything else;
+ * * a shadow and no border, where the sheet separates surfaces with hairlines.
+ *   The rule this keeps is the one that matters -- a shadow is allowed under a
+ *   floating card, and this is one. A hairline as well would read as both;
+ * * a sentence-case label in the body face, where `.mi` would set it in
+ *   tracked-out uppercase mono. The label names the card, quietly; it is not
+ *   the machine announcing what it did.
  *
  * The markup is generated -- see lib/widgetPresets.js -- so the class names
  * below are the contract with that file, not with a component. */
 .widget-board {
+  /* Scoped here rather than in `:root`. These are the tiles' values, and a
+     token at the root would read as an invitation to round the rest of the
+     app with it. */
+  --r-widget: 14px;
+  --widget-pad: 16px;
+
   display: grid;
   /* auto-fit rather than auto-fill: one card in a turn should fill the column
      rather than sit in a third of it beside two empty tracks. */
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 12px;
-  margin: 0 0 18px;
+  grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
+  gap: 18px 14px;
+  margin: 2px 0 20px;
   /* Each card as tall as what is in it. Stretching a row to its tallest card
      leaves the short ones -- the clock, a tool's one line -- as mostly empty
      frames, which reads as a card still loading rather than as a card that is
@@ -3172,45 +3187,100 @@ p.provider-problem { margin: 9px 0 0; font: 400 var(--t-sm)/1.5 var(--font); }
 .widget {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
   min-width: 0;
 }
 
+/* Sentence case, in the body face. The reference boards label every tile this
+   way and it is the single biggest reason they read as calm. */
 .widget-label {
-  padding-left: 1px;
+  padding-left: 2px;
+  font: 400 var(--t-xs)/1.3 var(--font);
+  letter-spacing: var(--track-body);
+  color: var(--text-faint);
 }
 
 .widget-card {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 14px;
+  padding: var(--widget-pad);
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
+  border: 0;
+  border-radius: var(--r-widget);
+  min-width: 0;
+  /* Two shadows: a hairline-weight contact shadow that does the work a border
+     did, and a wide soft one that lifts the tile off the sheet. Both are ink
+     rather than black -- the ground is a cool blue-grey and a neutral shadow
+     greys it toward green. */
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--ink) 8%, transparent),
+    0 10px 26px -14px color-mix(in srgb, var(--ink) 30%, transparent);
+}
+
+/* The template's own output. It needs the column and the rhythm rather than
+   the card, which stacks only this and the footer under it -- without it the
+   gap would fall between the body and the footer and nowhere inside. */
+.widget-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   min-width: 0;
 }
 
-/* The first line of a card that has one number to say. The clock is the only
-   preset using it today; a card whose answer is a figure should look like the
-   figure is the answer. */
+/* The one tinted tile, as the reference boards have one. It goes to the clock
+   because the clock is this app's ambient card -- the thing that is simply
+   true right now rather than something looked up -- and a board of nothing but
+   white tiles has no centre.
+ *
+ * The fill is the accent, so it follows a chosen theme rather than pinning one
+ * blue into the sheet. Every colour over it is mixed from white, which keeps
+ * it legible at any accent the palette can produce: the palette's own
+ * generator already holds the accent to 5.5:1 on the sheet, and white on that
+ * accent clears more. */
+.widget[data-kind="clock"] .widget-card {
+  background: linear-gradient(
+    155deg,
+    color-mix(in srgb, var(--accent) 82%, white) 0%,
+    var(--accent) 100%
+  );
+  color: var(--ink-light);
+}
+.widget[data-kind="clock"] .widget-figure,
+.widget[data-kind="clock"] .widget-line {
+  color: var(--ink-light);
+}
+.widget[data-kind="clock"] .widget-unit,
+.widget[data-kind="clock"] .widget-sub {
+  color: color-mix(in srgb, var(--ink-light) 76%, transparent);
+}
+.widget[data-kind="clock"] .widget-open {
+  color: color-mix(in srgb, var(--ink-light) 66%, transparent);
+}
+.widget[data-kind="clock"] .widget-open:hover { color: var(--ink-light); }
+.widget[data-kind="clock"] .widget-result {
+  color: color-mix(in srgb, var(--ink-light) 82%, transparent);
+  border-left-color: color-mix(in srgb, var(--ink-light) 30%, transparent);
+}
+
+/* The first line of a card that has one figure to say, with its unit beside
+   it rather than under it -- 58° F on the weather tile, 14:05 BST here. */
 .widget-hero {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 7px;
 }
 
 .widget-figure {
-  font: 700 var(--t-xl)/1 var(--font);
+  font: 600 var(--t-xl)/1.05 var(--font);
   letter-spacing: var(--track-display);
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
 
 .widget-unit {
-  font: 500 var(--t-xs)/1 var(--font-mono);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
+  font: 400 var(--t-sm)/1 var(--font);
+  letter-spacing: var(--track-body);
   color: var(--text-faint);
 }
 
@@ -3233,12 +3303,13 @@ p.provider-problem { margin: 9px 0 0; font: 400 var(--t-sm)/1.5 var(--font); }
   min-width: 0;
 }
 
+/* How many, how far: the small grey figure at the end of a card's first line.
+   Sentence case like the label, for the same reason. */
 .widget-count {
   margin-left: auto;
   flex: none;
-  font: 500 var(--t-micro)/1 var(--font-mono);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
+  font: 400 var(--t-xs)/1.3 var(--font);
+  letter-spacing: var(--track-body);
   color: var(--text-faint);
 }
 
@@ -3260,23 +3331,24 @@ p.provider-problem { margin: 9px 0 0; font: 400 var(--t-sm)/1.5 var(--font); }
    text -- the memory page makes the same distinction. */
 .widget-quote {
   margin: 0;
-  font: 400 var(--t-body)/1.55 var(--font);
+  font: 400 var(--t-body)/1.5 var(--font);
   color: var(--ink);
   text-wrap: pretty;
 }
 
+/* A soft chip, as on the reference's note tile. */
 .widget-badge {
-  padding: 2px 7px;
-  border-radius: var(--r-pill);
+  align-self: flex-start;
+  padding: 3px 9px;
+  border-radius: 999px;
   background: var(--violet-field);
-  font: 500 var(--t-micro)/1.6 var(--font-mono);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
+  font: 500 var(--t-xs)/1.35 var(--font);
+  letter-spacing: var(--track-body);
   color: var(--accent);
 }
 
-/* Done or failed, as a dot. The only colour decision in a card, and it uses
-   the two the palette already reserves for pass and warning. */
+/* Done or failed, as a dot. The only colour decision in an untinted card, and
+   it uses the two the palette already reserves for pass and warning. */
 .widget-state {
   width: 7px;
   height: 7px;
@@ -3290,13 +3362,13 @@ p.provider-problem { margin: 9px 0 0; font: 400 var(--t-sm)/1.5 var(--font); }
 .widget-rows {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
   /* Eight rows of a search result is taller than the answer beside it. The
      card scrolls rather than the thread growing a page per skill call. */
-  max-height: 260px;
+  max-height: 268px;
   overflow-y: auto;
 }
 
@@ -3307,58 +3379,82 @@ p.provider-problem { margin: 9px 0 0; font: 400 var(--t-sm)/1.5 var(--font); }
   min-width: 0;
 }
 
-/* A directory is a table, not a list of paragraphs: name left, size right. */
-.widget-rows[data-tabular] { gap: 4px; }
-.widget-rows[data-tabular] .widget-row {
-  flex-direction: row;
+/* The reference's list rows, everywhere it has one: the thing on the left, its
+   time or its host right-aligned on the same line, and the grey second line
+   under both. */
+.widget-row-top {
+  display: flex;
   align-items: baseline;
   gap: 10px;
+  min-width: 0;
 }
 
 .widget-row-main {
-  font: 400 var(--t-sm)/1.45 var(--font);
+  font: 500 var(--t-md)/1.4 var(--font);
   color: var(--ink);
   overflow-wrap: anywhere;
   min-width: 0;
 }
 /* A recalled passage is the user's own sentence rather than a heading, and
-   reads as evidence rather than as a link. */
-.widget-row-main[data-quiet] { color: var(--text-dim); }
+   reads as evidence rather than as a label -- so it keeps the body weight and
+   sits a step down in colour, with its provenance a further step below. Both
+   lines grey at one size was the version that could not be read apart. */
+.widget-row-main[data-quiet] {
+  font-weight: 400;
+  color: var(--text-dim);
+}
 
 a.widget-row-main {
-  color: var(--accent);
+  color: var(--ink);
   text-decoration: none;
 }
-a.widget-row-main:hover { text-decoration: underline; }
-
-/* When, where, or which host: the line that says how to place the row. */
-.widget-when,
-.widget-size {
-  font: 500 var(--t-micro)/1.5 var(--font-mono);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
-  color: var(--text-faint);
+a.widget-row-main:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 
-.widget-size {
+/* When, where, which host, how big: the small grey figure at the right of a
+   row. Never wraps -- it is what the eye runs down the column for. */
+.widget-side {
   margin-left: auto;
   flex: none;
-  text-transform: none;
+  font: 400 var(--t-xs)/1.4 var(--font);
+  letter-spacing: var(--track-body);
+  color: var(--text-faint);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .widget-row-sub {
-  font: 400 var(--t-xs)/1.45 var(--font);
+  font: 400 var(--t-xs)/1.5 var(--font);
   color: var(--text-faint);
   /* Two lines of a snippet. More and the card stops being a glance; the whole
-     thing is a fold away under the card anyway. */
+     thing is a fold away inside the card anyway. */
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-/* A folder row wears its slash rather than an icon: no icon set is vendored
-   here, and the convention is already in the skill's own text output. */
+/* Nothing to say under a row is nothing drawn. The sources template always
+   emits the element, because whether it has anything in it depends on two
+   fields rather than one. */
+.widget-row-sub:empty { display: none; }
+
+/* The host a result came from, at the head of its grey line. A shade darker
+   than the sentence after it: it is the part a reader weighs before deciding
+   whether to read the rest. */
+.widget-source { color: var(--text-dim); }
+.widget-dot { margin: 0 5px; }
+
+/* A directory is a table rather than a list of paragraphs: every row is one
+   line, so the twelve points of air a two-line row needs would spread five
+   files over half a screen. */
+.widget-rows[data-tight] { gap: 6px; }
+
+/* A folder wears its slash rather than an icon: no icon set is vendored here,
+   and the convention is already in the skill's own text output. */
 .widget-row[data-kind="folder"] .widget-row-main::after {
   content: "/";
   color: var(--text-faint);
@@ -3366,19 +3462,24 @@ a.widget-row-main:hover { text-decoration: underline; }
 
 .widget-more {
   margin: 0;
-  font: 500 var(--t-micro)/1 var(--font-mono);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
+  font: 400 var(--t-xs)/1.3 var(--font);
+  letter-spacing: var(--track-body);
   color: var(--text-faint);
 }
 
-/* The way back to what the model actually read. A card is a reading of a
-   result, and the reading should always be checkable without leaving the
-   conversation. Named after the skill until it is open, so the board still
-   says which skills ran. */
+/* The way back to what the model actually read, as a footer inside the tile.
+   Inside rather than under it: the reference cards are self-contained and the
+   silhouette is most of why they look calm.
+ *
+ * A card is a reading of a result, and the reading should always be checkable
+ * without leaving the conversation. Named after the skill until it is open, so
+ * the board still says which skills ran. */
 .widget-open {
   align-self: flex-start;
-  padding: 0 1px;
+  margin-top: 2px;
+  padding: 0;
+  font: 400 var(--t-xs)/1.3 var(--font);
+  letter-spacing: var(--track-body);
   color: var(--text-faint);
   text-align: left;
   max-width: 100%;

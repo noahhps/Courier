@@ -196,11 +196,14 @@ cannot invent a card — it picks a shape and fills it in, and the server refuse
 a field the client has no template for, so a card is either right or absent
 rather than blank.
 
-Under each card is the name of the skill that drew it, which opens the result
-the model was actually given. The card is a reading of that result and the
-reading should always be checkable without leaving the conversation. A skill
-still running keeps the trace row it has always had and becomes a card when its
-result lands; a skill whose answer is a sentence keeps its row for good.
+The tiles are drawn to the reference boards the feature was designed from —
+soft corners, a shadow rather than a border, a sentence-case label above, and
+one tinted card among the white ones, which is the clock. The last line inside
+each card names the skill that drew it and opens the result the model was
+actually given: the card is a reading of that result, and the reading should
+always be checkable without leaving the conversation. A skill still running
+keeps the trace row it has always had and becomes a card when its result lands;
+a skill whose answer is a sentence keeps its row for good.
 
 Cards are stored with the answer, so reopening a conversation brings back what
 you saw rather than only what the model read. `docs/widgets.md` has the

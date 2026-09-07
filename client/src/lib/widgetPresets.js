@@ -22,7 +22,13 @@
  *
  * The composition is the one in the reference boards: a quiet label, then a
  * card whose first line is the thing you came to read at the size you can read
- * it from across the desk, then the detail underneath.
+ * it from across the desk, then the detail underneath. Rows follow the same
+ * boards' lists -- the thing on the left, its time or its host right-aligned
+ * on that line, and a grey second line under both.
+ *
+ * Labels are sentence case and name the card rather than the skill: "Up next"
+ * over a calendar, because that is what you are looking at, and the skill that
+ * produced it is already written along the bottom of the tile.
  */
 
 // The head of every card that has a list under it: what was asked, and how
@@ -49,14 +55,16 @@ export const PRESETS = {
   },
 
   agenda: {
-    label: "Calendar",
+    label: "Up next",
     template: `${head("title", "subtitle")}
 {{#if events}}
 <ul class="widget-rows">
   {{#each events}}
   <li class="widget-row">
-    {{#if when}}<span class="widget-when">{{when}}</span>{{/if}}
-    <span class="widget-row-main">{{title}}</span>
+    <div class="widget-row-top">
+      <span class="widget-row-main">{{title}}</span>
+      {{#if when}}<span class="widget-side">{{when}}</span>{{/if}}
+    </div>
     {{#if detail}}<span class="widget-row-sub">{{detail}}</span>{{/if}}
   </li>
   {{/each}}
@@ -65,18 +73,30 @@ export const PRESETS = {
 ${more}`,
   },
 
+  // The host reads as part of the grey line under the headline, the way the
+  // boards write "AI infrastructure · Reuters" -- not opposite a title that
+  // may be running to three lines beside it. Two things about that line:
+  //
+  // * the separator is nested inside both conditions, so a result with no
+  //   snippet gets no dangling dot;
+  // * it is written on one line with no space between the blocks, because
+  //   whether it has any content at all depends on two fields and `:empty`
+  //   -- which hides it when it has none -- does not count whitespace as
+  //   nothing. The language has no comment form to explain that in place,
+  //   which is why this is out here.
   sources: {
-    label: "Web",
+    label: "News",
     template: `${head("query", "subtitle")}
 {{#if results}}
 <ul class="widget-rows">
   {{#each results}}
   <li class="widget-row">
-    {{#if url}}
-    <a class="widget-row-main" href="{{url|url}}" target="_blank" rel="noreferrer noopener">{{title}}</a>
-    {{else}}<span class="widget-row-main">{{title}}</span>{{/if}}
-    {{#if domain}}<span class="widget-when">{{domain}}</span>{{/if}}
-    {{#if snippet}}<span class="widget-row-sub">{{snippet}}</span>{{/if}}
+    <div class="widget-row-top">
+      {{#if url}}
+      <a class="widget-row-main" href="{{url|url}}" target="_blank" rel="noreferrer noopener">{{title}}</a>
+      {{else}}<span class="widget-row-main">{{title}}</span>{{/if}}
+    </div>
+    <span class="widget-row-sub">{{#if domain}}<span class="widget-source">{{domain}}</span>{{/if}}{{#if snippet}}{{#if domain}}<span class="widget-dot">·</span>{{/if}}{{snippet}}{{/if}}</span>
   </li>
   {{/each}}
 </ul>
@@ -91,8 +111,8 @@ ${more}`,
 <ul class="widget-rows">
   {{#each passages}}
   <li class="widget-row">
-    {{#if source}}<span class="widget-when">{{source}}</span>{{/if}}
     <span class="widget-row-main" data-quiet>{{text}}</span>
+    {{#if source}}<span class="widget-row-sub">{{source}}</span>{{/if}}
   </li>
   {{/each}}
 </ul>
@@ -114,11 +134,13 @@ ${more}`,
     label: "Files",
     template: `${head("path", "subtitle")}
 {{#if entries}}
-<ul class="widget-rows" data-tabular>
+<ul class="widget-rows" data-tight>
   {{#each entries}}
   <li class="widget-row" data-kind="{{kind}}">
-    <span class="widget-row-main">{{name}}</span>
-    {{#if size}}<span class="widget-size">{{size}}</span>{{/if}}
+    <div class="widget-row-top">
+      <span class="widget-row-main">{{name}}</span>
+      {{#if size}}<span class="widget-side">{{size}}</span>{{/if}}
+    </div>
   </li>
   {{/each}}
 </ul>

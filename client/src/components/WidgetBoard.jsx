@@ -30,24 +30,27 @@ function Card({ skill, html }) {
 
   return (
     <article className="widget" data-kind={skill.widget.kind}>
-      <div className="widget-label mi">{labelFor(skill.widget)}</div>
-      {/* The template is written in this repository and every value
-          substituted into it is escaped on the way in -- see lib/widgets.js.
-          That is the whole contract, and it is the same one markdown.js
-          keeps. */}
-      <div className="widget-card" dangerouslySetInnerHTML={{ __html: html }} />
-      <button
-        type="button"
-        className="widget-open mi"
-        aria-expanded={open}
-        onClick={() => setOpen((was) => !was)}
-      >
-        {open ? "hide result" : skill.name}
-      </button>
-      {/* What the model was actually given. The card is a reading of it, and
-          anyone who wants to check the reading should not have to reopen the
-          conversation somewhere else to do it. */}
-      {open ? <pre className="widget-result">{skill.result}</pre> : null}
+      <div className="widget-label">{labelFor(skill.widget)}</div>
+      <div className="widget-card">
+        {/* The template is written in this repository and every value
+            substituted into it is escaped on the way in -- see lib/widgets.js.
+            That is the whole contract, and it is the same one markdown.js
+            keeps. */}
+        <div className="widget-body" dangerouslySetInnerHTML={{ __html: html }} />
+        <button
+          type="button"
+          className="widget-open"
+          aria-expanded={open}
+          onClick={() => setOpen((was) => !was)}
+        >
+          {open ? "Hide result" : skill.name}
+        </button>
+        {/* What the model was actually given. The card is a reading of it, and
+            anyone who wants to check the reading should not have to reopen the
+            conversation somewhere else to do it. Inside the tile, so a card
+            being checked still looks like one card. */}
+        {open ? <pre className="widget-result">{skill.result}</pre> : null}
+      </div>
     </article>
   );
 }
