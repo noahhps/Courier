@@ -196,11 +196,15 @@ cannot invent a card — it picks a shape and fills it in, and the server refuse
 a field the client has no template for, so a card is either right or absent
 rather than blank.
 
-The tiles are drawn to the reference boards the feature was designed from —
-soft corners, a shadow rather than a border, a sentence-case label above, and
-one tinted card among the white ones, which is the clock. The last line inside
-each card names the skill that drew it and opens the result the model was
-actually given: the card is a reading of that result, and the reading should
+The tiles are measured off the reference boards the feature was designed from —
+their radius, padding, row rhythm, type ramp and the weight of their shadow,
+taken off the pixels rather than eyeballed. Soft corners, a shadow rather than
+a border, a sentence-case label above, one serif on the note card, and one
+tinted card among the white ones, which is the clock. A news row carries a
+monogram of its source where the boards carry a thumbnail: there is no picture
+of a web result and inventing one would be inventing evidence. The last line
+inside each card names the skill that drew it and opens the result the model
+was actually given: the card is a reading of that result, and the reading should
 always be checkable without leaving the conversation. A skill still running
 keeps the trace row it has always had and becomes a card when its result lands;
 a skill whose answer is a sentence keeps its row for good.

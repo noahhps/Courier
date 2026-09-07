@@ -43,15 +43,22 @@ const head = (title, sub) => `
 const more = `{{#if more}}<p class="widget-more">and {{more}} more</p>{{/if}}`;
 
 export const PRESETS = {
+  // Built on the weather tile, which is the boards' one tinted card: the place
+  // along the top, the reading underneath at four times the size, and the
+  // condition set off to the right of the title line. Here the date is the
+  // place -- it is the context you read the time against -- and the zone is
+  // the condition.
   clock: {
     label: "Time",
     template: `
+<div class="widget-head">
+  <span class="widget-title">{{day}}</span>
+  {{#if zone}}<span class="widget-count">{{zone}}</span>{{/if}}
+</div>
 <div class="widget-hero">
   <span class="widget-figure">{{time}}</span>
-  {{#if zone}}<span class="widget-unit">{{zone}}</span>{{/if}}
 </div>
-<p class="widget-line">{{date}}</p>
-{{#if note}}<p class="widget-sub">{{note}}</p>{{/if}}`,
+<p class="widget-sub">{{date}}{{#if note}} · {{note}}{{/if}}</p>`,
   },
 
   agenda: {
@@ -90,13 +97,16 @@ ${more}`,
 {{#if results}}
 <ul class="widget-rows">
   {{#each results}}
-  <li class="widget-row">
-    <div class="widget-row-top">
-      {{#if url}}
-      <a class="widget-row-main" href="{{url|url}}" target="_blank" rel="noreferrer noopener">{{title}}</a>
-      {{else}}<span class="widget-row-main">{{title}}</span>{{/if}}
+  <li class="widget-row" data-thumbed>
+    {{#if domain}}<span class="widget-thumb" data-tone="{{domain|tone}}" aria-hidden="true">{{domain|initial}}</span>{{/if}}
+    <div class="widget-row-text">
+      <div class="widget-row-top">
+        {{#if url}}
+        <a class="widget-row-main" href="{{url|url}}" target="_blank" rel="noreferrer noopener">{{title}}</a>
+        {{else}}<span class="widget-row-main">{{title}}</span>{{/if}}
+      </div>
+      <span class="widget-row-sub">{{#if domain}}<span class="widget-source">{{domain}}</span>{{/if}}{{#if snippet}}{{#if domain}}<span class="widget-dot">·</span>{{/if}}{{snippet}}{{/if}}</span>
     </div>
-    <span class="widget-row-sub">{{#if domain}}<span class="widget-source">{{domain}}</span>{{/if}}{{#if snippet}}{{#if domain}}<span class="widget-dot">·</span>{{/if}}{{snippet}}{{/if}}</span>
   </li>
   {{/each}}
 </ul>
@@ -120,14 +130,18 @@ ${more}`,
 ${more}`,
   },
 
+  // The note tile, in the boards' own order: a heading, the words themselves
+  // set in the serif, and a chip along the bottom. The serif is the reference's
+  // one departure from its own sans and it is what makes that tile read as
+  // something written rather than something reported.
   fact: {
-    label: "Memory",
+    label: "Quick note",
     template: `
 <div class="widget-head">
-  <span class="widget-badge">{{action}}</span>
-  {{#if category}}<span class="widget-count">{{category}}</span>{{/if}}
+  <span class="widget-title">{{action}}</span>
 </div>
-<p class="widget-quote">{{text}}</p>`,
+<p class="widget-quote">{{text}}</p>
+{{#if category}}<span class="widget-chip">{{category}}</span>{{/if}}`,
   },
 
   files: {

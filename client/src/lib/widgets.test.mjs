@@ -67,9 +67,49 @@ test("a row's field shadows the card's field of the same name", () => {
 });
 
 test("an absent optional field leaves no empty element behind", () => {
-  const html = renderWidget({ kind: "clock", data: { time: "14:05", date: "Friday" } });
-  assert.ok(!html.includes("widget-unit"));
-  assert.ok(!html.includes("widget-sub"));
+  // A clock always has a day, a time and a date; the zone and the timezone
+  // name are the two that may be missing, and neither should leave a mark.
+  const html = renderWidget({
+    kind: "clock",
+    data: { time: "14:05", day: "Friday", date: "6 September 2026" },
+  });
+  assert.ok(!html.includes("widget-count"));
+  assert.ok(html.includes("6 September 2026"));
+  // The separator before the timezone name belongs to the timezone name.
+  assert.ok(!html.includes("·"));
+});
+
+test("a row's second line is dropped rather than drawn empty", () => {
+  // The sources template always emits that element, because whether it has
+  // anything in it depends on two fields rather than one -- so it has to come
+  // out with nothing between the tags for `:empty` to hide it.
+  const html = renderWidget({
+    kind: "sources",
+    data: { query: "x", results: [{ title: "No source, no snippet" }] },
+  });
+  assert.ok(html.includes('<span class="widget-row-sub"></span>'));
+});
+
+test("a news row wears a monogram of its source, and none without one", () => {
+  const withSource = renderWidget({
+    kind: "sources",
+    data: { query: "x", results: [{ title: "A", domain: "reuters.com" }] },
+  });
+  assert.ok(withSource.includes(">R</span>"));
+  assert.ok(/data-tone="[1-6]"/.test(withSource));
+
+  const without = renderWidget({
+    kind: "sources",
+    data: { query: "x", results: [{ title: "A" }] },
+  });
+  assert.ok(!without.includes("widget-thumb"));
+});
+
+test("a source is the same colour every time it appears", () => {
+  const tone = (domain) =>
+    renderWidget({ kind: "sources", data: { query: "x", results: [{ title: "A", domain }] } })
+      .match(/data-tone="(\d)"/)[1];
+  assert.equal(tone("reuters.com"), tone("reuters.com"));
 });
 
 test("a kind this client has no template for renders nothing at all", () => {

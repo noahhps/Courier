@@ -35,9 +35,9 @@ from app.widgets import KINDS, MAX_ROWS, SkillResult, UnknownWidget, Widget, bui
 
 
 def test_a_card_carries_only_the_fields_its_preset_declares():
-    card = build("clock", time="14:05", date="Friday 6 September 2026", zone="BST")
+    card = build("clock", time="14:05", day="Friday", date="6 September 2026", zone="BST")
     assert card.kind == "clock"
-    assert card.data == {"time": "14:05", "date": "Friday 6 September 2026", "zone": "BST"}
+    assert card.data == {"time": "14:05", "day": "Friday", "date": "6 September 2026", "zone": "BST"}
 
 
 def test_an_unknown_kind_is_refused_by_name():
@@ -50,7 +50,7 @@ def test_a_field_the_preset_never_declared_is_refused():
     # The failure mode this replaces: a skill writes `titel`, the card renders
     # with a blank heading, and nothing anywhere says why.
     with pytest.raises(UnknownWidget) as raised:
-        build("clock", time="14:05", date="Friday", titel="Now")
+        build("clock", time="14:05", day="Friday", date="6 September", titel="Now")
     assert "titel" in str(raised.value)
 
 
@@ -58,11 +58,11 @@ def test_a_required_field_left_empty_is_a_missing_field():
     # "" and None both mean absent, so a required field cannot be satisfied by
     # a blank -- a card whose heading is an empty string is the bug, not the fix.
     with pytest.raises(ValueError):
-        build("clock", time="", date="Friday")
+        build("clock", time="", day="Friday", date="6 September")
 
 
 def test_optional_blanks_are_dropped_rather_than_stored():
-    card = build("clock", time="14:05", date="Friday", zone="", note=None)
+    card = build("clock", time="14:05", day="Friday", date="6 September", zone="", note=None)
     assert "zone" not in card.data and "note" not in card.data
 
 
@@ -128,7 +128,7 @@ def test_a_card_hands_out_a_copy_of_its_own_data():
 
 
 def test_a_result_with_a_card_is_still_the_text_it_always_was():
-    result = SkillResult("Friday 6 September 2026, 14:05 BST", build("clock", time="14:05", date="Friday"))
+    result = SkillResult("Friday 6 September 2026, 14:05 BST", build("clock", time="14:05", day="Friday", date="6 September"))
     assert result == "Friday 6 September 2026, 14:05 BST"
     assert "14:05" in result
     assert result.widget.kind == "clock"
@@ -162,7 +162,7 @@ class _Drawing(Skill):
             return "nothing to show"
         return SkillResult(
             "the time is 14:05",
-            build("clock", time="14:05", date="Friday 6 September 2026"),
+            build("clock", time="14:05", day="Friday", date="6 September 2026"),
         )
 
 

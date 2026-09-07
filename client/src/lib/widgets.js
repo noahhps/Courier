@@ -18,8 +18,16 @@
  *
  *   {{field}}              the value, escaped
  *   {{field|url}}          the value as an href, escaped, http(s) only
+ *   {{field|initial}}      its first letter, for a monogram tile
+ *   {{field|tone}}         a stable 1-6 from the string, to colour that tile
  *   {{#if field}}…{{else}}…{{/if}}
  *   {{#each list}}…{{/each}}
+ *
+ * The filters are the whole of the computation this language does, and all
+ * four are presentation: `initial` and `tone` stand a news result's source in
+ * for the thumbnail the reference boards have and we have no image for. They
+ * live here rather than on the server for that reason -- nothing about them is
+ * a fact about the world, so nothing about them belongs in a skill's answer.
  *
  * Inside `each`, a name is looked up on the row first and then on the card, so
  * a row's `title` shadows the card's without either having to be renamed.
@@ -52,6 +60,36 @@ export function escapeHtml(value) {
 export function safeUrl(value) {
   const url = String(value ?? "").trim();
   return /^https?:\/\//i.test(url) ? escapeHtml(url) : "#";
+}
+
+/**
+ * The first letter of a value, for the tile that stands in for a thumbnail.
+ *
+ * First *letter or digit*, not first character: a domain is occasionally
+ * punctuation-first and a tile reading "-" says nothing at all.
+ */
+export function initial(value) {
+  const match = String(value ?? "").match(/[a-z0-9]/i);
+  return match ? escapeHtml(match[0].toUpperCase()) : "";
+}
+
+// How many tints a monogram tile can wear. Six is enough that two sources in
+// one card rarely collide and few enough that the board keeps one palette.
+const TONES = 6;
+
+/**
+ * A stable tint for a string, as a number the stylesheet has a rule for.
+ *
+ * Stable is the point: reuters.com is the same colour in every card in every
+ * conversation, so the tiles become recognisable rather than decorative. A sum
+ * of code points is a weak hash and exactly strong enough for choosing between
+ * six things.
+ */
+export function tone(value) {
+  const text = String(value ?? "");
+  let sum = 0;
+  for (let i = 0; i < text.length; i += 1) sum += text.charCodeAt(i);
+  return String((sum % TONES) + 1);
 }
 
 /**
@@ -149,7 +187,8 @@ function render(nodes, scopes) {
       out += node.value;
     } else if (node.type === "var") {
       const value = lookup(node.path, scopes);
-      if (node.filter === "url") out += safeUrl(value);
+      const filter = FILTERS[node.filter];
+      if (filter) out += filter(value);
       else if (value !== undefined && value !== null) out += escapeHtml(value);
     } else if (node.type === "if") {
       const branch = truthy(lookup(node.path, scopes)) ? node.body : node.otherwise;
@@ -163,6 +202,12 @@ function render(nodes, scopes) {
   }
   return out;
 }
+
+// Every filter returns finished, escaped output -- `safeUrl` and `initial`
+// escape what they emit and `tone` can only ever produce a digit. A filter
+// that returned raw text would be the one hole in the contract, so a new one
+// is written to escape or to be incapable of needing it.
+const FILTERS = { url: safeUrl, initial, tone };
 
 // Parsed once per preset, not once per card. A conversation that searched the
 // web four times draws four cards from the same template, and the parse is the

@@ -60,10 +60,14 @@ class Preset:
 
 #: Every card the client can draw, keyed by the name a skill asks for.
 KINDS: dict[str, Preset] = {
-    # The time, as the clock skill read it. `note` carries the zone when one
-    # was asked for by name, and is absent for the ordinary "what time is it".
+    # The time, as the clock skill read it. Split into a day and a date rather
+    # than one string because the card sets them in different places -- the day
+    # is the title line, the date sits under the reading -- and a single
+    # "Sunday 06 September 2026" is too long to be either. `note` carries the
+    # zone when one was asked for by name, and is absent for the ordinary
+    # "what time is it".
     "clock": Preset(
-        required=("time", "date"),
+        required=("time", "day", "date"),
         optional=("zone", "note"),
     ),
     # What is on the calendar. One row per event, soonest first, exactly as

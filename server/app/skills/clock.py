@@ -80,7 +80,8 @@ def _answer(now: datetime, place: str | None = None) -> SkillResult:
         build(
             "clock",
             time=now.strftime("%H:%M"),
-            date=now.strftime("%A %d %B %Y"),
+            day=now.strftime("%A"),
+            date=now.strftime("%d %B %Y"),
             # `%Z` is empty for a naive datetime, which `_scalar` drops -- so
             # the card simply loses its zone line rather than growing a blank.
             zone=now.strftime("%Z"),

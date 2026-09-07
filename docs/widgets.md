@@ -22,22 +22,39 @@ the answer and the answer was written from it:
 
 ```
 Time                      News
-╭────────────────────╮   ╭─────────────────────────╮
-│ 14:05  BST         │   │ gimlet labs   3 results │
-│ Sunday 6 September │   │ Gimlet raises $300M     │
-│                    │   │ reuters.com · The round │
-│ current_time       │   │ web_search              │
-╰────────────────────╯   ╰─────────────────────────╯
+╭────────────────────╮   ╭──────────────────────────────╮
+│ Sunday         BST │   │ gimlet labs        3 results │
+│                    │   │ ┌──┐ Gimlet raises $300M for │
+│ 14:05              │   │ │ R│ AI infrastructure       │
+│                    │   │ └──┘ reuters.com · The round │
+│ 06 September 2026  │   │ ┌──┐ Agents take over a site │
+│ current_time       │   │ │ T│ theverge.com · A short  │
+╰────────────────────╯   ╰──────────────────────────────╯
 ```
 
-The tiles are drawn to the reference boards rather than to the rules at the top
-of `styles.css`: a real radius, a shadow and no border, and a sentence-case
-label in the body face. Those three departures are scoped to `.widget-board`
-and are written down where they are made.
+The tiles are measured off the reference boards rather than drawn to the rules
+at the top of `styles.css`. Off a 249px-wide reference card: a 13px radius,
+17px of padding, 11px between rows and between a label and its card, a 36px
+thumbnail, a card title 2.8× smaller in cap height than the big reading above
+it, and a shadow that is 3.5% ink at its darkest over a twenty-pixel falloff.
+The departures from the sheet — a real radius, a shadow instead of a hairline,
+a sentence-case label in the body face, one serif — are scoped to
+`.widget-board` and written down where they are made.
 
-One tile is tinted, as the boards have one — the clock, because it is the
-ambient card, the thing that is simply true right now rather than something
-looked up. The fill is the accent, so it follows a chosen theme.
+Three things the boards have that we cannot take literally:
+
+* **the tinted tile.** The boards' is a hazy #8aaacd, and white on that is
+  2.4:1 — they can carry it because their card is one huge numeral and ours
+  has a date and a footer. Ours is mixed to land near 5:1, and it is mixed from
+  the accent rather than pinned to a hex, so it still follows a chosen theme;
+* **the thumbnails.** Every news row on the boards has a 36px picture. There is
+  no picture of a web result and we will not invent one, so the source stands
+  in for it: its first letter on one of six tints, chosen from the domain so a
+  host is the same colour in every card it appears in. Those are the `|initial`
+  and `|tone` filters, and they live in the client because nothing about them
+  is a fact about the world;
+* **the photographs, maps and album art** on the boards' other tiles. Those are
+  cards for data no skill here produces.
 
 The last line inside each card names the skill that produced it, and opens the
 result the model was actually given. A card is a *reading* of that result, and
@@ -62,7 +79,7 @@ it in. The shapes are declared in `server/app/widgets/catalog.py` and drawn in
 
 | Kind | Drawn by | Carries |
 |---|---|---|
-| `clock` | `current_time` | `time`, `date`, `zone`, `note` |
+| `clock` | `current_time` | `time`, `day`, `date`, `zone`, `note` — laid out as the boards' weather tile: the day along the top, the reading under it, the date beneath |
 | `agenda` | `list_events`, `find_events` | `title`, `subtitle`, `empty`, `events[]` of `title`/`when`/`detail` |
 | `sources` | `web_search` | `query`, `subtitle`, `empty`, `results[]` of `title`/`domain`/`url`/`snippet` |
 | `recall` | `search_history` | `query`, `subtitle`, `empty`, `passages[]` of `text`/`source`/`when` |
