@@ -12,7 +12,6 @@ the wrong answer to a sentence said out loud mid-conversation.
 from __future__ import annotations
 
 from ..store import Store
-from ..widgets import SkillResult, build
 from .skill import Skill
 
 MAX_MATCHES = 5
@@ -55,7 +54,7 @@ class Remember(Skill):
         self.store = store
         self.max_chars = max_chars
 
-    async def use(self, fact: str = "", category: str | None = None) -> SkillResult | str:
+    async def use(self, fact: str = "", category: str | None = None) -> str:
         text = (fact or "").strip()
         if not text:
             return "remember needs the fact to store, as one sentence."
@@ -70,15 +69,9 @@ class Remember(Skill):
         stored = self.store.add_fact(
             text, source="told", category=category.strip() or None if category else None
         )
-        # No card for a fact that was already there: nothing changed, and a
-        # card announcing "Remembered" over an unchanged store would be the
-        # feature lying about work it did not do.
         if stored is None:
             return f"Already remembered: {text!r}. Nothing to change."
-        return SkillResult(
-            f"Remembered: {text!r}. It will be available in every conversation.",
-            build("fact", action="Remembered", text=text, category=stored.category),
-        )
+        return f"Remembered: {text!r}. It will be available in every conversation."
 
 
 class Forget(Skill):
@@ -107,7 +100,7 @@ class Forget(Skill):
         )
         self.store = store
 
-    async def use(self, about: str = "") -> SkillResult | str:
+    async def use(self, about: str = "") -> str:
         needle = (about or "").strip()
         if not needle:
             return "forget needs to know what to forget."
@@ -126,18 +119,4 @@ class Forget(Skill):
 
         deleted = [fact.text for fact in matches if self.store.delete_fact(fact.id)]
         listed = "; ".join(repr(text) for text in deleted)
-        text = f"Forgotten {len(deleted)} fact(s): {listed}."
-        if not deleted:
-            return text
-        # One card, however many went: what a reader needs to see is that
-        # something was crossed out and what it said, and a stack of identical
-        # cards for a three-fact deletion is worse at both.
-        return SkillResult(
-            text,
-            build(
-                "fact",
-                action="Forgotten",
-                text="; ".join(deleted),
-                category=f"{len(deleted)} facts" if len(deleted) > 1 else None,
-            ),
-        )
+        return f"Forgotten {len(deleted)} fact(s): {listed}."

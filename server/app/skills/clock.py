@@ -11,7 +11,6 @@ from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..situation import Situation
-from ..widgets import SkillResult, build
 from .skill import Skill
 
 
@@ -34,7 +33,7 @@ class Clock(Skill):
 
     async def use(
         self, timezone: str | None = None, context: Situation | None = None
-    ) -> SkillResult | str:
+    ) -> str:
         if not timezone:
             # The user's zone first, the server's only as a last resort. These
             # are routinely different machines -- the README has the server on
@@ -43,7 +42,7 @@ class Clock(Skill):
             # delivered confidently.
             zone = context.tzinfo() if context else None
             now = datetime.now(zone) if zone else datetime.now().astimezone()
-            return _answer(now)
+            return now.strftime("%A %d %B %Y, %H:%M %Z").strip()
 
         try:
             zone = ZoneInfo(timezone)
@@ -62,32 +61,7 @@ class Clock(Skill):
         except (ValueError, TypeError):
             return f"{timezone!r} is not a timezone name I recognise."
 
-        # Named, because the card is about to be read next to a clock on the
-        # reader's own wall: "14:05" with no label is the wrong time twice a
-        # day and there is no way to tell from the card which one it is.
-        return _answer(datetime.now(zone), place=timezone)
-
-
-def _answer(now: datetime, place: str | None = None) -> SkillResult:
-    """The same instant twice: a sentence for the model, a card for the reader.
-
-    The three failure branches above deliberately do not come through here.
-    A card is a statement of fact, and "I don't recognise that timezone" is not
-    one -- drawing it would put a confident-looking panel around an apology.
-    """
-    return SkillResult(
-        now.strftime("%A %d %B %Y, %H:%M %Z").strip(),
-        build(
-            "clock",
-            time=now.strftime("%H:%M"),
-            day=now.strftime("%A"),
-            date=now.strftime("%d %B %Y"),
-            # `%Z` is empty for a naive datetime, which `_scalar` drops -- so
-            # the card simply loses its zone line rather than growing a blank.
-            zone=now.strftime("%Z"),
-            note=place,
-        ),
-    )
+        return datetime.now(zone).strftime("%A %d %B %Y, %H:%M %Z").strip()
 
 
 @lru_cache(maxsize=1)

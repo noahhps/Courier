@@ -22,7 +22,6 @@ import re
 from datetime import datetime, timedelta
 
 from ..store import Store, StoredEvent
-from ..widgets import SkillResult, build
 from .skill import Skill
 
 # 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM'. Deliberately strict: a model that guesses
@@ -48,41 +47,6 @@ def _describe(event: StoredEvent) -> str:
         when = f"{when}–{tail}"
     line = f"{when} — {event.title}"
     return f"{line} ({event.notes})" if event.notes else line
-
-
-def _row(event) -> dict:
-    """One event as the card draws it: what, when, and one detail.
-
-    Duplicated between the two calendar modules, like `_describe` and `_lines`
-    above it. They answer to the same three skill names over two different
-    stores and are deliberately kept apart -- a shared base would have to know
-    about both, and only one of them is ever registered.
-    """
-    when = event.starts_at.split("T", 1)[0] if event.all_day else event.starts_at.replace("T", " ")
-    return {
-        "title": event.title,
-        "when": f"{when} (all day)" if event.all_day else when,
-        # The note, which is all this store has beside the title -- there is no
-        # location column here, unlike the real calendar next door. `_describe`
-        # puts the same string in brackets after the title for the model.
-        "detail": event.notes,
-    }
-
-
-def _card(events: list[StoredEvent], title: str, empty: str):
-    """The listing as a card, whether or not anything is on.
-
-    An empty calendar is an answer, not an absence -- "you have nothing on
-    Thursday" is the whole reply to most questions this skill is asked, and
-    the card is what says the calendar was actually read.
-    """
-    return build(
-        "agenda",
-        title=title,
-        subtitle=f"{len(events)} event{'' if len(events) == 1 else 's'}" if events else None,
-        empty=None if events else empty,
-        events=[_row(e) for e in events],
-    )
 
 
 def _lines(events: list[StoredEvent], empty: str) -> str:
@@ -172,7 +136,7 @@ class ListEvents(Skill):
         )
         self.store = store
 
-    async def use(self, days: int = 7) -> SkillResult | str:
+    async def use(self, days: int = 7) -> str:
         try:
             span = max(1, min(int(days), 365))
         except (TypeError, ValueError):
@@ -183,11 +147,7 @@ class ListEvents(Skill):
         since = now.strftime("%Y-%m-%dT00:00")
         until = (now + timedelta(days=span)).strftime("%Y-%m-%dT00:00")
         events = self.store.list_events(since=since, until=until)
-        empty = f"Nothing on the calendar in the next {span} days."
-        return SkillResult(
-            _lines(events, empty),
-            _card(events, f"Next {span} day{'' if span == 1 else 's'}", "Nothing on"),
-        )
+        return _lines(events, f"Nothing on the calendar in the next {span} days.")
 
 
 class FindEvents(Skill):
@@ -208,15 +168,12 @@ class FindEvents(Skill):
         )
         self.store = store
 
-    async def use(self, query: str) -> SkillResult | str:
+    async def use(self, query: str) -> str:
         needle = (query or "").strip()
         if not needle:
             return "Give me something to search for."
         events = self.store.search_events(needle)
-        return SkillResult(
-            _lines(events, f"Nothing on the calendar matches {needle!r}."),
-            _card(events, needle, "No match"),
-        )
+        return _lines(events, f"Nothing on the calendar matches {needle!r}.")
 
 
 def _granularity(like: str) -> str:

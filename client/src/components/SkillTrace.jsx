@@ -48,9 +48,9 @@ export function SkillTrace({ skills }) {
   if (!skills?.length) return null;
 
   // The one still waiting, rather than the last in the list. They are usually
-  // the same row and are not when a turn calls two skills at once, or when the
-  // board above has taken the finished ones and left this list out of order --
-  // and naming a skill that has already answered is worse than naming none.
+  // the same row and are not when a turn calls two skills at once, where the
+  // last to be called can be the first to answer -- and naming a skill that
+  // has already answered is worse than naming none.
   const running = skills.find((s) => s.result === undefined);
 
   return (
