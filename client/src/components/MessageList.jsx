@@ -11,7 +11,7 @@ import { StartersHead } from "./Starters";
 // the reserve under the thread should carry the view with it.
 export const STICK_PX = 120;
 
-export function MessageList({ messages, model, scrollToken }) {
+export function MessageList({ messages, model, scrollToken, onDecide }) {
   const ref = useRef(null);
 
   // Opening a session or sending a message: go to the bottom, wherever the
@@ -40,6 +40,7 @@ export function MessageList({ messages, model, scrollToken }) {
         messages.map((m) => (
           <Message
             key={m.key}
+            onDecide={onDecide}
             role={m.role}
             content={m.content}
             streaming={m.streaming}

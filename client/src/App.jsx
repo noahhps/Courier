@@ -350,6 +350,7 @@ export default function App() {
                 messages={chat.messages}
                 model={chat.badge?.text}
                 scrollToken={chat.scrollToken}
+                onDecide={chat.decide}
               />
 
               <Composer

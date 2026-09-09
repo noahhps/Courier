@@ -814,9 +814,36 @@ html[data-fullscreen] .app[data-rail="pinned"] .navrail-inner {
   box-shadow: 0 0 0 3px var(--menu), 0 0 0 5px var(--accent);
 }
 
-.navrail-mark { background: var(--violet-soft); }
-.navrail-mark[aria-current="page"] {
-  background: var(--accent);
+/* The mark. Not a `.navrail-circle`: the drawing is roughly one part wide to
+   three tall, and a disc either crops it or shrinks it to a smear. It keeps
+   the circles' 24px slot to sit on their centre line, and overflows it in
+   height, which is the one direction the rail has room in.
+
+   No tint and no fill on the current page -- the artwork carries the only blue
+   the rail needs, and a coloured plate behind a brush stroke reads as a sticker
+   rather than a logo. Being on Settings is said with the ring the rest of the
+   rail already uses for focus. */
+.navrail-mark {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  transition: box-shadow 0.16s ease, transform 0.16s ease;
+}
+.navrail-mark img {
+  display: block;
+  /* Taller than its slot. The rail's top row is 24px of content in a taller
+     band, so the overflow lands in padding that is already there. */
+  height: 30px;
+  width: auto;
+}
+.navrail-mark:hover { transform: scale(1.12); }
+.navrail-mark[aria-current="page"],
+.navrail-mark:focus-visible {
+  outline: none;
   box-shadow: 0 0 0 3px var(--menu), 0 0 0 5px var(--accent);
 }
 
@@ -1668,6 +1695,18 @@ html[data-fullscreen] .app[data-rail="pinned"] .navrail-inner {
   gap: 8px;
   padding-bottom: 4px;
 }
+/* Sits above the greeting at its own aspect -- height fixed, width whatever
+   that implies -- so the stroke keeps the proportions it was drawn at. The
+   negative margin pulls the heading back up under it: the artwork carries a
+   little air of its own at the foot of the stroke, and the flex gap on top of
+   that read as a gap nobody had chosen. */
+.starters-mark {
+  height: 68px;
+  width: auto;
+  align-self: start;
+  margin-bottom: -6px;
+}
+
 .starters-head .h { font-size: var(--t-xl); }
 .starters-head .p {
   color: var(--text-dim);
@@ -3056,6 +3095,165 @@ p.provider-problem { margin: 9px 0 0; font: 400 var(--t-sm)/1.5 var(--font); }
    line. A filled, bordered box gave a handful of tool calls the visual weight
    of a section, when what they are is a margin note about how the answer was
    reached. */
+/* The switch above the skill list, and the per-row control it turns on. */
+.approval-setting {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.approval-setting-text { flex: 1; min-width: 0; }
+.approval-setting-title {
+  margin: 0 0 4px;
+  font: 500 var(--t-md)/1.35 var(--font);
+  color: var(--ink);
+}
+.approval-setting-note {
+  margin: 0;
+  font: 400 var(--t-sm)/1.5 var(--font);
+  color: var(--text-dim);
+  max-width: 60ch;
+}
+
+/* A word rather than a second switch on the row: two switches side by side
+   read as one setting with two halves, and these are a state and a policy. */
+.skill-always {
+  flex: none;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  font: 500 var(--t-xs)/1 var(--font);
+  letter-spacing: var(--track-body);
+  color: var(--text-dim);
+  transition: border-color 0.14s ease, color 0.14s ease;
+}
+.skill-always:hover { border-color: var(--accent); color: var(--accent); }
+.skill-always[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--violet-field);
+  color: var(--accent);
+}
+
+/* -- skill approval ---------------------------------------------------------
+ *
+ * The turn is stopped on the server while one of these is on screen, so it is
+ * drawn with more weight than the trace it sits above: a real surface, a real
+ * border, and the accent on the edge that faces the reader. Everything else in
+ * this column reports what already happened; this is the one thing in the
+ * thread that is waiting on you.
+ *
+ * It is deliberately not a modal. Blocking the whole window would make a
+ * request to read one folder feel like a system-level event, and it would put
+ * the decision somewhere you cannot see the conversation that prompted it. */
+.approval {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  /* The one edge that carries colour. A full accent border reads as an error
+     state; a single rule reads as attention. */
+  border-left: 2px solid var(--accent);
+  border-radius: 10px;
+}
+/* Answered, and waiting on the call it just released. The card holds its place
+   and dims rather than vanishing under the press, so the gap between clicking
+   and the result landing does not read as the button having missed. It goes
+   when the result arrives -- by then the trace row below is the record that
+   the skill ran, and a spent prompt kept forever is just clutter. */
+.approval[data-answered] {
+  border-left-color: var(--line);
+  opacity: 0.7;
+}
+
+.approval-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.approval-label { color: var(--accent); }
+.approval[data-answered] .approval-label { color: var(--text-faint); }
+.approval-name {
+  font: 500 var(--t-sm)/1.3 var(--font-mono);
+  color: var(--ink);
+}
+
+/* One argument per row: the name in the label face, the value in the mono one
+   the rest of the app uses for paths and identifiers. */
+.approval-args {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.approval-args[data-empty] {
+  font: 400 var(--t-sm)/1.5 var(--font);
+  color: var(--text-faint);
+}
+.approval-arg {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.approval-arg dt {
+  flex: none;
+  min-width: 64px;
+  font: 400 var(--t-xs)/1.5 var(--font);
+  color: var(--text-faint);
+}
+.approval-arg dd {
+  margin: 0;
+  font: 400 var(--t-sm)/1.5 var(--font-mono);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.approval-note {
+  margin: 0;
+  font: 400 var(--t-sm)/1.5 var(--font);
+  color: var(--text-dim);
+}
+
+/* Wraps rather than scrolls: on a phone these are four targets that have to
+   stay pressable, and a row that scrolls sideways hides the one you want. */
+.approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.approval-btn {
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font: 500 var(--t-sm)/1 var(--font);
+  color: var(--ink);
+  transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+.approval-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* Refusing is not the dangerous choice and is not dressed as one: a denied
+   call comes back to the model as a sentence and the answer carries on. It is
+   set apart in weight rather than in colour. */
+.approval-btn[data-deny] { color: var(--text-dim); }
+.approval-btn[data-deny]:hover {
+  border-color: var(--ochre);
+  color: var(--ochre);
+}
+.approval-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
+
 .skill-trace {
   display: flex;
   flex-direction: column;

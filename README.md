@@ -144,6 +144,48 @@ about the wrong one.
 > confidently wrong, check `ollama show <model>` for a projector before
 > suspecting anything else.
 
+## Asking before a skill runs
+
+A skill that is switched on can read your folders, search the web and call
+whatever an MCP server exposes. Until now the only say you had was that switch:
+on meant "run whenever the model asks", off meant "never" — a decision made
+once, in advance, about calls you had not seen yet.
+
+**Skills → Ask before running a skill** is the setting in between. With it on,
+the turn stops at the call and shows you which skill wants to run and with what
+arguments, and waits:
+
+```
+WANTS TO RUN  list_directory
+path          ~/Documents
+
+[ Allow once ]  [ Allow in this chat ]  [ Always allow ]  [ Deny ]
+```
+
+The arguments are shown rather than summarised, deliberately. "list_directory
+wants to run" is not a decision; `list_directory` on `~/Documents` is.
+
+Three widths of yes, and only the widest is written down. **Once** is this call.
+**In this chat** lives in memory on the server and dies with the process, because
+a conversation is the unit of trust. **Always** is stored, and is the row that
+turns into the *Always allowed* pill next to that skill on the Skills page —
+which is also where you take it back.
+
+Off by default. A harness that interrupts every call the first time you start it
+teaches you to dismiss the prompt, which is the failure this exists to avoid.
+
+Three things worth knowing about how it behaves:
+
+* **the turn holds open.** The prompt is one more frame on the SSE stream the
+  answer is already arriving on, so waiting costs a pending request and nothing
+  else. It is not a second trip through the model, and answering does not
+  restart the conversation;
+* **a refusal is an answer.** Denying puts a sentence where the skill's result
+  would have gone, so the model knows it was refused and says so rather than
+  inventing one. The turn finishes normally;
+* **silence is refusal.** A prompt nobody answers in five minutes is treated as
+  a no. Running it anyway would teach you the prompt could be ignored.
+
 ## Memory
 
 Three kinds, and they fail differently.
@@ -339,6 +381,7 @@ server/app/
   db.py            WAL, user_version migrations, VACUUM INTO
   store.py         sessions and messages
   orchestrator.py  §6 request lifecycle
+  approvals.py     the prompts a turn waits on, and the standing grants
   api.py           HTTP surface
   providers/
     base.py        ModelProvider protocol — the seam, in place from day one
@@ -353,7 +396,7 @@ server/app/
     search.py      cosine + reciprocal rank fusion; pure
     indexer.py     catch_up() and search() — the write and read halves
     facts.py       the curation pass, and a parser that never raises
-  tests/           the pure parts of memory
+  tests/           the pure parts of memory, and the approval gate
 client/            React, built by Vite; no CDN, no runtime dependencies
   src/
     App.jsx        auth phases, drawer, wiring

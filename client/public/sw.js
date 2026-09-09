@@ -8,7 +8,7 @@ const CACHE = "shell-v2";
 // JS and CSS carry content hashes in their filenames, so there is nothing
 // stable to precache: they are cached on first fetch by the handler below and
 // a new build simply requests new URLs.
-const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg"];
+const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon-32.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

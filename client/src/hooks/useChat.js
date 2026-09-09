@@ -214,6 +214,24 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
               prev.map((m) => (m.key === answer.key ? { ...m, skills } : m)),
             );
             jumpToEnd();
+          } else if (event === "skill_approval") {
+            // The turn is now blocked on the server waiting for an answer, so
+            // the prompt is attached to the row that is waiting rather than
+            // held beside the list -- the trace already draws that row as
+            // running, and this is what it is running *on*.
+            let asked = false;
+            skills = [...skills]
+              .reverse()
+              .map((s) =>
+                !asked && s.name === data.name && s.result === undefined
+                  ? ((asked = true), { ...s, approval: { id: data.id } })
+                  : s,
+              )
+              .reverse();
+            setMessages((prev) =>
+              prev.map((m) => (m.key === answer.key ? { ...m, skills } : m)),
+            );
+            jumpToEnd();
           } else if (event === "tool_result") {
             // Fills in the last unanswered row for that skill rather than the
             // last row overall: two skills can be called in one round.
@@ -222,7 +240,15 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
               .reverse()
               .map((s) =>
                 !filled && s.name === data.name && s.result === undefined
-                  ? ((filled = true), { ...s, result: data.text })
+                  ? // The answer, and the end of any prompt that was on this
+                    // row: `approval` is dropped rather than left behind, or a
+                    // resolved question keeps its buttons on screen.
+                    ((filled = true), {
+                      ...s,
+                      result: data.text,
+                      denied: data.denied || undefined,
+                      approval: undefined,
+                    })
                   : s,
               )
               .reverse();
@@ -294,6 +320,48 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
   );
 
   /**
+   * Answer one skill-approval prompt.
+   *
+   * The turn is still streaming on the connection `send` opened; this is a
+   * separate request that unblocks it, and the result arrives back down the
+   * stream as an ordinary `tool_result`. So nothing here writes the outcome --
+   * it only records that the button was pressed, which is what takes the
+   * buttons off screen without waiting for a round trip.
+   *
+   * A failure is almost always a prompt that is no longer waiting: the turn
+   * was stopped, or it stood long enough to time out and be refused for you.
+   * That is worth saying on the row rather than swallowing, because the answer
+   * the reader gave did not count.
+   */
+  const decide = useCallback(
+    async (id, decision) => {
+      const mark = (patch) =>
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.skills?.some((s) => s.approval?.id === id)
+              ? {
+                  ...m,
+                  skills: m.skills.map((s) =>
+                    s.approval?.id === id
+                      ? { ...s, approval: { ...s.approval, ...patch } }
+                      : s,
+                  ),
+                }
+              : m,
+          ),
+        );
+
+      mark({ answered: decision });
+      try {
+        await api.answerApproval(id, decision);
+      } catch {
+        mark({ answered: undefined, expired: true });
+      }
+    },
+    [api],
+  );
+
+  /**
    * End the turn in flight, keeping what has arrived.
    *
    * Aborting the fetch is the whole mechanism -- there is no "stop" message to
@@ -326,5 +394,6 @@ export function useChat(api, { onSessionsChanged, provider = null }) {
     startNew,
     send,
     stop,
+    decide,
   };
 }

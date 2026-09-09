@@ -6,7 +6,7 @@ import { useDialog } from "./Dialog";
 import { Icon } from "./Icon";
 import { ServiceIcon } from "./ServiceIcon";
 
-function SkillRow({ skill, busy, onToggle, onKey }) {
+function SkillRow({ skill, busy, onToggle, onKey, askFirst, onApproval }) {
   const [key, setKey] = useState("");
   const [open, setOpen] = useState(false);
   const blocked = skill.requires && !skill.available;
@@ -85,6 +85,23 @@ function SkillRow({ skill, busy, onToggle, onKey }) {
           </form>
         ) : null}
       </div>
+      {/* Only while asking is on. Off, this control would claim to change
+          something that has no effect, which is worse than not being there. */}
+      {askFirst ? (
+        <button
+          type="button"
+          className="skill-always"
+          aria-pressed={skill.auto_approve}
+          title={
+            skill.auto_approve
+              ? `Ask again before running ${skill.name}`
+              : `Stop asking before running ${skill.name}`
+          }
+          onClick={() => onApproval({ auto_approve: { [skill.name]: !skill.auto_approve } })}
+        >
+          {skill.auto_approve ? "Always allowed" : "Ask first"}
+        </button>
+      ) : null}
       <button
         type="button"
         className="switch"
@@ -386,7 +403,7 @@ function McpServerRow({ api, server, onToggle, onDelete, onSync, onLogo, onReset
 
 export function Skills({ api }) {
   const { confirm, notify } = useDialog();
-  const { skills, loading, error, refresh, setEnabled, setKey, pending } =
+  const { skills, loading, error, refresh, setEnabled, setKey, pending, askFirst, setApproval } =
     useSkills(api);
   const [tab, setTab] = useState("skills"); // "skills" | "mcp"
   const [query, setQuery] = useState("");
@@ -710,6 +727,34 @@ export function Skills({ api }) {
                 </div>
               ) : null}
 
+              {/* The switch the whole feature hangs off. Above the list
+                  rather than in Settings, because what it changes is how every
+                  row below behaves. */}
+              <div className="approval-setting">
+                <div className="approval-setting-text">
+                  <p className="approval-setting-title">Ask before running a skill</p>
+                  <p className="approval-setting-note">
+                    The answer stops and shows you which skill wants to run, and
+                    with what, until you allow it. Off, an enabled skill runs
+                    whenever the model asks for it.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="switch"
+                  role="switch"
+                  aria-checked={askFirst}
+                  // Both, as every other switch here does: `aria-checked` is
+                  // what `role="switch"` is read by, and the stylesheet keys
+                  // the on-state off `aria-pressed`.
+                  aria-pressed={askFirst}
+                  aria-label={askFirst ? "Stop asking before skills run" : "Ask before skills run"}
+                  onClick={() => setApproval({ ask_first: !askFirst })}
+                >
+                  <i />
+                </button>
+              </div>
+
               {skills.length === 0 && !loading ? (
                 <p className="p" style={{ color: "var(--text-dim)" }}>
                   No skills registered. Go to the <strong>MCP Servers & Presets</strong> tab to activate GitHub, Figma, Google Workspace, or custom MCP servers.
@@ -723,6 +768,8 @@ export function Skills({ api }) {
                       busy={pending.includes(skill.name)}
                       onToggle={setEnabled}
                       onKey={setKey}
+                      askFirst={askFirst}
+                      onApproval={setApproval}
                     />
                   ))}
                 </div>

@@ -249,14 +249,21 @@ export function NavRail({
 
       <div className="navrail-inner">
         <div className="navrail-top">
+          {/* The mark is a tall brush stroke, so it is given its own height and
+              whatever width that implies rather than being fitted into the
+              24px disc the other rail circles use. Squeezed into one it comes
+              out a sliver: at that size the three raised fingers close up and
+              the gesture -- which is the whole drawing -- stops reading. */}
           <button
             type="button"
-            className="navrail-circle navrail-mark"
+            className="navrail-mark"
             aria-current={view === "settings" ? "page" : undefined}
             aria-label="This device — settings"
             title="This device"
             onClick={() => onView("settings")}
-          />
+          >
+            <img src="/courier-mark.png" alt="" width="10" height="30" />
+          </button>
           <span className="navrail-wordmark" aria-hidden="true">
             Assistant
           </span>

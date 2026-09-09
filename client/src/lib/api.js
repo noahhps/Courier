@@ -190,6 +190,17 @@ export function createApi(token, onUnauthorized = () => {}) {
         method: "PATCH",
         body: JSON.stringify({ enabled }),
       }),
+    // The approval switch, and the standing per-skill grants behind it. Both
+    // optional on the wire, so a page can send one without the other.
+    setApprovalSettings: (patch) =>
+      json("/skills/settings", { method: "PATCH", body: JSON.stringify(patch) }),
+    // Answer one pending prompt. The turn is still streaming on another
+    // connection and resumes the moment this lands.
+    answerApproval: (id, decision) =>
+      json("/chat/approve/" + encodeURIComponent(id), {
+        method: "POST",
+        body: JSON.stringify({ decision }),
+      }),
     listSessions: () => json("/sessions"),
     createSession: () =>
       json("/sessions", {

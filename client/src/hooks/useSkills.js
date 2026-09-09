@@ -11,6 +11,9 @@ import { ApiError } from "../lib/api";
  */
 export function useSkills(api) {
   const [skills, setSkills] = useState([]);
+  // The approval switch travels with the list, because the page draws one from
+  // the other: a per-skill "always" control means nothing while asking is off.
+  const [askFirst, setAskFirst] = useState(false);
   // `loading` starts true so the page can say "checking" instead of flashing
   // "none registered" for the length of one request and then contradicting it.
   const [loading, setLoading] = useState(true);
@@ -21,6 +24,7 @@ export function useSkills(api) {
     try {
       const data = await api.listSkills();
       setSkills(data.skills || []);
+      setAskFirst(Boolean(data.ask_first));
       setError(null);
     } catch (problem) {
       // Shown as written: the server's refusals are already sentences.
@@ -42,6 +46,7 @@ export function useSkills(api) {
         const data = await api.listSkills();
         if (!live) return;
         setSkills(data.skills || []);
+        setAskFirst(Boolean(data.ask_first));
         setError(null);
       } catch (problem) {
         if (live) setError({
@@ -120,5 +125,50 @@ export function useSkills(api) {
     [api, refresh],
   );
 
-  return { skills, loading, error, refresh, setEnabled, setKey, pending };
+  /**
+   * The approval switch, and the standing per-skill grants behind it.
+   *
+   * Applied to local state before the request rather than after: these are two
+   * checkboxes, and a checkbox that waits for a round trip before it moves
+   * reads as broken on a slow connection. The server's answer is authoritative
+   * and replaces the guess; a failure puts the old value back.
+   */
+  const setApproval = useCallback(
+    async (patch) => {
+      const previousAsk = askFirst;
+      const previousSkills = skills;
+      if (patch.ask_first !== undefined) setAskFirst(patch.ask_first);
+      if (patch.auto_approve) {
+        setSkills((prev) =>
+          prev.map((s) =>
+            s.name in patch.auto_approve
+              ? { ...s, auto_approve: patch.auto_approve[s.name] }
+              : s,
+          ),
+        );
+      }
+      try {
+        const data = await api.setApprovalSettings(patch);
+        setAskFirst(Boolean(data.ask_first));
+        const always = new Set(data.auto_approve || []);
+        setSkills((prev) => prev.map((s) => ({ ...s, auto_approve: always.has(s.name) })));
+      } catch {
+        setAskFirst(previousAsk);
+        setSkills(previousSkills);
+      }
+    },
+    [api, askFirst, skills],
+  );
+
+  return {
+    skills,
+    loading,
+    error,
+    refresh,
+    setEnabled,
+    setKey,
+    pending,
+    askFirst,
+    setApproval,
+  };
 }

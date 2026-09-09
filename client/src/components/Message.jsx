@@ -3,6 +3,7 @@ import { memo, useMemo } from "react";
 import { renderMarkdown } from "../lib/markdown";
 import { MessageAttachments } from "./Attachments";
 import { Reasoning } from "./Reasoning";
+import { SkillApproval } from "./SkillApproval";
 import { SkillTrace } from "./SkillTrace";
 
 /**
@@ -29,6 +30,7 @@ export const Message = memo(function Message({
   reasoning,
   attachments,
   skills,
+  onDecide,
   model,
 }) {
   // renderMarkdown escapes the source before emitting a single tag, so no
@@ -72,6 +74,16 @@ export const Message = memo(function Message({
         {reasoning ? (
           <Reasoning text={reasoning} answering={Boolean(content)} />
         ) : null}
+
+        {/* Anything the turn is currently blocked on, above the trace. The
+            server is holding the answer open until one of these is pressed, so
+            it goes where the eye lands first rather than inside the compact
+            list of what has already run. */}
+        {skills
+          ?.filter((s) => s.approval)
+          .map((s) => (
+            <SkillApproval key={s.approval.id} skill={s} onDecide={onDecide} />
+          ))}
 
         <SkillTrace skills={skills} />
 

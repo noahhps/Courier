@@ -14,6 +14,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
+from .approvals import (
+    APPROVAL_DEFAULTS,
+    DECISIONS,
+    read_auto_approved,
+    write_auto_approved,
+)
 from .attachments import AttachmentError
 from .attachments import decode as decode_attachments
 from .config import Settings, ThinkingLevel, write_secret
@@ -111,6 +117,16 @@ class ChatRequest(BaseModel):
 
 class SkillToggle(BaseModel):
     enabled: bool
+
+
+class ApprovalSettings(BaseModel):
+    # The global switch, and the per-skill "always" list it gates.
+    ask_first: bool | None = None
+    auto_approve: dict[str, bool] | None = None
+
+
+class ApprovalDecision(BaseModel):
+    decision: str
 
 
 class ModelChoice(BaseModel):
@@ -609,6 +625,7 @@ def build_router(
 
     @router.get("/skills")
     def list_skills() -> dict:
+        auto = read_auto_approved(store)
         # Name and description only. `use` is code, not something to serialise,
         # and the description is the part a caller needs in order to choose.
         return {
@@ -628,10 +645,59 @@ def build_router(
                     # `requires` ("MCP server 'gmail'"), which makes a sentence
                     # written for a person into a wire format.
                     "server": getattr(skill, "server_name", None),
+                    # Whether this skill is on the standing "always" list. Only
+                    # meaningful while `ask_first` is on, but sent regardless so
+                    # flipping the switch does not need a second fetch.
+                    "auto_approve": name in auto,
                 }
                 for name, skill in registry.all()
-            ]
+            ],
+            # The switch itself travels with the list, because the page draws
+            # one from the other: the per-skill "always" control means nothing
+            # until asking is turned on.
+            "ask_first": store.get_settings(APPROVAL_DEFAULTS)["skills.ask_first"],
         }
+
+    # Declared ahead of `/skills/{name}` so this path is matched as itself
+    # rather than as a skill called "settings". FastAPI resolves in
+    # declaration order, and nothing registers a skill under that name.
+    @router.patch("/skills/settings")
+    def set_approval_settings(body: ApprovalSettings) -> dict:
+        """The approval switch, and the standing per-skill grants.
+
+        Both optional and applied independently, so the page can toggle one
+        without having to send the other back unchanged.
+        """
+        if body.ask_first is not None:
+            store.set_settings({"skills.ask_first": body.ask_first})
+        if body.auto_approve:
+            names = read_auto_approved(store)
+            for name, always in body.auto_approve.items():
+                if registry.get(name) is None:
+                    raise HTTPException(404, f"no skill named {name!r}")
+                names.add(name) if always else names.discard(name)
+            write_auto_approved(store, names)
+        return {
+            "ask_first": store.get_settings(APPROVAL_DEFAULTS)["skills.ask_first"],
+            "auto_approve": sorted(read_auto_approved(store)),
+        }
+
+    @router.post("/chat/approve/{request_id}")
+    def answer_approval(request_id: str, body: ApprovalDecision) -> dict:
+        """Answer one pending prompt, by the id the stream sent with it.
+
+        A 404 covers every ordinary race -- the button pressed twice, an answer
+        arriving after the reader closed the tab, a prompt that already timed
+        out -- because in all of them the honest thing to say is that there is
+        no longer a question under that id.
+        """
+        if body.decision not in DECISIONS:
+            raise HTTPException(
+                422, f"decision must be one of {', '.join(DECISIONS)}"
+            )
+        if not orchestrator.approvals.resolve(request_id, body.decision):
+            raise HTTPException(404, "that approval is no longer waiting")
+        return {"id": request_id, "decision": body.decision}
 
     @router.patch("/skills/{name}")
     def set_skill_enabled(name: str, body: SkillToggle) -> dict:

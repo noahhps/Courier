@@ -16,6 +16,16 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
 from . import attachments as files
+from .approvals import (
+    ALLOW_ALWAYS,
+    ALLOW_ONCE,
+    ALLOW_SESSION,
+    APPROVAL_DEFAULTS,
+    Approvals,
+    allowed,
+    read_auto_approved,
+    write_auto_approved,
+)
 from .config import Settings, ThinkingLevel
 from .memory import MEMORY_DEFAULTS
 from .situation import Situation, render as render_situation
@@ -78,6 +88,11 @@ class Orchestrator:
         self.store = store
         self.router = router
         self.registry = registry
+        # Approval prompts in flight, and the skills a conversation has already
+        # said yes to. Both in memory: a prompt belongs to an open stream, and
+        # a session grant is scoped to a conversation the reader is still in.
+        self.approvals = Approvals()
+        self._session_grants: dict[str, set[str]] = {}
 
     def _skill_schemas(self) -> list[dict] | None:
         """What the model is told it can call, or None when it can call nothing.
@@ -352,9 +367,50 @@ class Orchestrator:
                     # for. `finally` persists whatever this list holds.
                     record = {"name": call.name, "arguments": call.arguments}
                     used.append(record)
-                    result = await self._run_skill(call, session_id)
-                    record["result"] = result
-                    yield _sse("tool_result", {"name": call.name, "text": result})
+
+                    # Ask, unless something already standing says not to. The
+                    # prompt is one more frame on the stream this answer is
+                    # already arriving on, so the wait costs a pending request
+                    # rather than a second trip through the model.
+                    decision = self._standing_decision(call.name, session_id)
+                    if decision is None:
+                        request_id, waiter = self.approvals.open()
+                        yield _sse(
+                            "skill_approval",
+                            {
+                                "id": request_id,
+                                "name": call.name,
+                                "arguments": call.arguments,
+                            },
+                        )
+                        decision = await self.approvals.wait(request_id, waiter)
+                        self._remember_decision(call.name, session_id, decision)
+
+                    if not allowed(decision):
+                        # A refusal is an answer. It goes into the window where
+                        # the result would have gone, so the model knows it was
+                        # refused and can say so rather than inventing one --
+                        # and it is recorded, so reopening the conversation
+                        # shows the call was asked for and declined.
+                        result = (
+                            f"The user declined to run {call.name}. Do not try "
+                            "it again in this turn; answer without it, or say "
+                            "what you would need."
+                        )
+                        record["result"] = result
+                        record["denied"] = True
+                    else:
+                        result = await self._run_skill(call, session_id)
+                        record["result"] = result
+
+                    yield _sse(
+                        "tool_result",
+                        {
+                            "name": call.name,
+                            "text": result,
+                            "denied": record.get("denied", False),
+                        },
+                    )
                     window.append(
                         Message(
                             role="tool",
@@ -423,6 +479,36 @@ class Orchestrator:
         reduced = [window[0], *window[-5:]] if len(window) > 6 else window
         async for chunk in provider.stream(reduced, think=think, tools=tools):
             yield chunk
+
+    # -- approval ---------------------------------------------------------
+
+    def _standing_decision(self, name: str, session_id: str | None) -> str | None:
+        """A decision already made, or None when the reader has to be asked.
+
+        Checked in widening order -- the switch, then the stored "always", then
+        this conversation's own grants -- because each is cheaper than the one
+        after it and the first hit ends the question.
+        """
+        if not self.store.get_settings(APPROVAL_DEFAULTS)["skills.ask_first"]:
+            return ALLOW_ONCE
+        if name in read_auto_approved(self.store):
+            return ALLOW_ALWAYS
+        if session_id and name in self._session_grants.get(session_id, ()):
+            return ALLOW_SESSION
+        return None
+
+    def _remember_decision(self, name: str, session_id: str | None, decision: str) -> None:
+        """Widen the grant, when the reader asked for it to be widened.
+
+        Only the two widening answers are recorded. "Once" writes nothing, and
+        a refusal writes nothing either: a no is about this call, and storing
+        it would turn one cautious answer into a skill that silently stops
+        working with nothing on screen to say why.
+        """
+        if decision == ALLOW_ALWAYS:
+            write_auto_approved(self.store, read_auto_approved(self.store) | {name})
+        elif decision == ALLOW_SESSION and session_id:
+            self._session_grants.setdefault(session_id, set()).add(name)
 
     async def _run_skill(self, call, session_id: str | None = None) -> str:
         """One skill call, reduced to text the model can read.
