@@ -52,6 +52,11 @@ def settings(tmp_path: Path) -> Settings:
         db_path=tmp_path / "providers.db",
         auth_token="test_token",
         openrouter_key_path=tmp_path / "openrouter_key",
+        # Pinned rather than left to the default: the local model decides what
+        # thinking control the picker is told to draw, and the default has
+        # moved between families more than once. A test about the picker
+        # should not change its meaning when somebody repoints the server.
+        ollama_model="gpt-oss",
     )
 
 
@@ -73,8 +78,19 @@ def test_models_lists_every_backend_with_its_catalogue(client: TestClient):
     assert [m["id"] for m in local["models"]] == ["gpt-oss", "gemma4:12b"]
     # The control a model's family takes travels with it, so the composer can
     # redraw when the provider changes without keeping a name list in the browser.
+    # It follows the model that is *selected*, not the first one listed: the
+    # two happen to agree here because the fixture pins gpt-oss.
+    assert local["model"] == "gpt-oss"
     assert local["thinking"]["mode"] == "effort"
     assert payload[2]["account"] == {"label": "courier", "usage": 1.5}
+
+    # Which is worth saying with the same catalogue and a different choice:
+    # gemma cannot reason on demand, so the control disappears rather than
+    # staying drawn as an effort picker.
+    client.put("/api/providers/local/model", json={"model": "gemma4:12b"})
+    redrawn = client.get("/api/models").json()["providers"][0]
+    assert redrawn["model"] == "gemma4:12b"
+    assert redrawn["thinking"]["mode"] == "none"
 
 
 def test_one_unreachable_backend_does_not_blank_the_others(client: TestClient, settings):
